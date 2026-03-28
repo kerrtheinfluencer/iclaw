@@ -17,8 +17,8 @@ const PROVIDERS = {
     keyPlaceholder: 'AIza...',
     limits: 'Free: 1500 req/day · No credit card',
     models: [
-      { id: 'gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash', tier: 'Fast' },
-      { id: 'gemini-2.5-pro-preview-05-06', label: 'Gemini 2.5 Pro', tier: 'Best' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'Fast' },
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'Best' },
     ],
   },
   groq: {
@@ -34,8 +34,8 @@ const PROVIDERS = {
     models: [
       { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', tier: 'Best' },
       { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B', tier: 'Fastest' },
-      { id: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B', tier: 'Code' },
-      { id: 'qwen-qwq-32b', label: 'Qwen QWQ 32B', tier: 'Reasoning' },
+      { id: 'qwen/qwen3-32b', label: 'Qwen 3 32B', tier: 'Code' },
+      { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout', tier: 'Vision' },
     ],
   },
   openrouter: {
@@ -47,12 +47,13 @@ const PROVIDERS = {
     tagColor: 'text-purple-400 bg-purple-400/10',
     keyUrl: 'https://openrouter.ai/keys',
     keyPlaceholder: 'sk-or-...',
-    limits: 'Free models: DeepSeek, Qwen, Llama, Mistral',
+    limits: 'Free models: Qwen Coder, Nemotron, Llama, Mistral',
     models: [
-      { id: 'deepseek/deepseek-chat-v3-0324:free', label: 'DeepSeek V3', tier: 'Best Free' },
-      { id: 'qwen/qwen3-32b:free', label: 'Qwen 3 32B', tier: 'Code' },
-      { id: 'mistralai/mistral-small-3.1-24b-instruct:free', label: 'Mistral Small 3.1', tier: 'Fast' },
+      { id: 'openrouter/free', label: 'Auto (Best Free)', tier: 'Smart Router' },
+      { id: 'qwen/qwen3-coder:free', label: 'Qwen 3 Coder', tier: 'Code' },
+      { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super 120B', tier: 'Best' },
       { id: 'meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B', tier: 'Open' },
+      { id: 'mistralai/mistral-small-3.1-24b-instruct:free', label: 'Mistral Small 3.1', tier: 'Fast' },
     ],
   },
 };
