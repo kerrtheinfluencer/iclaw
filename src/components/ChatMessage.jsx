@@ -1,14 +1,63 @@
-import React from 'react';
-import { Bot, User, Zap, Cpu, Cloud } from 'lucide-react';
+import React, { useState } from 'react';
+import { Bot, User, Zap, Cpu, Cloud, Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import CodeBlock from './CodeBlock.jsx';
 import { parseResponse } from '../utils/codeParser.js';
 
 const engineIcons = {
-  puter: Cloud,
+  gemini: Cloud,
+  groq: Zap,
+  openrouter: Cloud,
   wasm: Cpu,
-  api: Cloud,
-  webgpu: Zap,
 };
+
+function ThinkingBlock({ content }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Count lines for preview
+  const lines = content.split('\n');
+  const preview = lines.slice(0, 3).join('\n');
+  const hasMore = lines.length > 3;
+
+  return (
+    <div className="my-2 rounded-lg border border-neon-purple/20 bg-neon-purple/[0.03] overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-neon-purple/[0.03] transition-colors active:scale-[0.99]"
+      >
+        <Brain size={13} className="text-neon-purple/70 shrink-0" />
+        <span className="text-[10px] font-mono text-neon-purple/60 uppercase tracking-wider">
+          Thinking
+        </span>
+        <span className="text-[9px] font-mono text-steel-600 ml-auto">
+          {lines.length} lines
+        </span>
+        {expanded ? (
+          <ChevronDown size={12} className="text-neon-purple/40 shrink-0" />
+        ) : (
+          <ChevronRight size={12} className="text-neon-purple/40 shrink-0" />
+        )}
+      </button>
+
+      {/* Preview (always visible) */}
+      {!expanded && (
+        <div className="px-3 pb-2">
+          <p className="text-[11px] text-steel-500 leading-relaxed whitespace-pre-wrap line-clamp-2 italic">
+            {preview}{hasMore ? '...' : ''}
+          </p>
+        </div>
+      )}
+
+      {/* Full thinking (expanded) */}
+      {expanded && (
+        <div className="px-3 pb-3 border-t border-neon-purple/10">
+          <p className="text-[11px] text-steel-400 leading-relaxed whitespace-pre-wrap pt-2 font-mono">
+            {content}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ChatMessage({ message, onInject, onPreview, projectOpen }) {
   const isUser = message.role === 'user';
@@ -61,23 +110,29 @@ export default function ChatMessage({ message, onInject, onPreview, projectOpen 
           </p>
         ) : (
           <div className="space-y-1">
-            {segments?.map((seg, i) =>
-              seg.type === 'code' ? (
-                <CodeBlock
-                  key={i}
-                  code={seg.content}
-                  language={seg.language}
-                  filename={seg.filename}
-                  onInject={onInject}
-                  onPreview={onPreview}
-                  projectOpen={projectOpen}
-                />
-              ) : (
+            {segments?.map((seg, i) => {
+              if (seg.type === 'thinking') {
+                return <ThinkingBlock key={i} content={seg.content} />;
+              }
+              if (seg.type === 'code') {
+                return (
+                  <CodeBlock
+                    key={i}
+                    code={seg.content}
+                    language={seg.language}
+                    filename={seg.filename}
+                    onInject={onInject}
+                    onPreview={onPreview}
+                    projectOpen={projectOpen}
+                  />
+                );
+              }
+              return (
                 <p key={i} className="text-sm text-steel-200 leading-relaxed whitespace-pre-wrap px-1">
                   {seg.content}
                 </p>
-              )
-            )}
+              );
+            })}
           </div>
         )}
       </div>
