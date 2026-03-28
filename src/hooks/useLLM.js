@@ -79,7 +79,7 @@ export function useLLM() {
   }, []);
 
   const generate = useCallback(
-    (messages, ragContext = [], onStream, onComplete) => {
+    (messages, ragContext = [], onStream, onComplete, attachments = []) => {
       streamCallbackRef.current = onStream;
       completionCallbackRef.current = onComplete;
       const requestId = Date.now().toString(36);
@@ -89,6 +89,7 @@ export function useLLM() {
         requestId,
         ragContext,
         model: activeModel,
+        attachments,
       });
       return requestId;
     },
