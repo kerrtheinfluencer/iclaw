@@ -132,7 +132,9 @@ export default function App() {
           onInject={handleInject} onPreview={handlePreview}
           projectOpen={workspace.isOpen} projectName={workspace.projectName}
           onOpenProject={workspace.openProject} fsSupported={workspace.fsSupported}
-          onOpenSettings={() => setSettingsOpen(true)} />
+          onOpenSettings={() => setSettingsOpen(true)}
+          webSearchOn={llm.webSearchOn} isSearching={llm.isSearching}
+          onToggleSearch={llm.toggleSearch} />
       </main>
 
       {editingFile && <CodeEditor path={editingFile} initialContent={editingContent}
