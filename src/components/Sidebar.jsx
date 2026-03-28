@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  FolderOpen, File, GitBranch, Search, MessageSquare,
+  FolderOpen, File, GitBranch, MessageSquare,
   Plus, ChevronRight, ChevronDown, Database, X,
   RefreshCw, Folder, Trash2, Clock,
+  Download, Upload, Archive,
 } from 'lucide-react';
-import { getAllChats, deleteChat } from '../utils/db.js';
+import { getAllChats, deleteChat, saveChat, getAllProjects, getSetting, setSetting } from '../utils/db.js';
 
 function TreeNode({ node, depth = 0, onFileSelect, path = '' }) {
   const [expanded, setExpanded] = useState(depth < 2);
@@ -46,16 +47,21 @@ export default function Sidebar({
 }) {
   const [activeTab, setActiveTab] = useState('files');
   const [chatHistory, setChatHistory] = useState([]);
+  const [backupStatus, setBackupStatus] = useState(null); // 'exported' | 'imported' | 'error'
+  const restoreInputRef = useRef(null);
 
-  // Load chat history when tab opens
   useEffect(() => {
     if (isOpen && activeTab === 'chat') {
-      getAllChats().then((chats) => {
-        const sorted = chats.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-        setChatHistory(sorted);
-      }).catch(() => setChatHistory([]));
+      loadHistory();
     }
   }, [isOpen, activeTab]);
+
+  const loadHistory = async () => {
+    try {
+      const chats = await getAllChats();
+      setChatHistory(chats.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
+    } catch { setChatHistory([]); }
+  };
 
   const handleDeleteChat = async (id, e) => {
     e.stopPropagation();
@@ -63,11 +69,109 @@ export default function Sidebar({
     setChatHistory((prev) => prev.filter((c) => c.id !== id));
   };
 
+  // ─── Backup: Export all data as JSON file ─────────────────────────
+
+  const handleExportBackup = async () => {
+    try {
+      const chats = await getAllChats();
+      const settings = {};
+
+      // Gather saved settings (API keys, preferences)
+      for (const key of ['key_gemini', 'key_groq', 'key_openrouter', 'apiProvider', 'apiModel']) {
+        const val = await getSetting(key, null);
+        if (val !== null) settings[key] = val;
+      }
+
+      const backup = {
+        version: '1.3',
+        app: 'iclaw',
+        exportedAt: new Date().toISOString(),
+        device: navigator.userAgent.slice(0, 80),
+        chats,
+        settings,
+        stats: {
+          totalChats: chats.length,
+          totalMessages: chats.reduce((sum, c) => sum + (c.messages?.length || 0), 0),
+        },
+      };
+
+      const json = JSON.stringify(backup, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      // Generate filename with date
+      const date = new Date().toISOString().slice(0, 10);
+      const filename = `iclaw-backup-${date}.json`;
+
+      // Trigger download
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setBackupStatus('exported');
+      setTimeout(() => setBackupStatus(null), 3000);
+    } catch (err) {
+      console.error('Export failed:', err);
+      setBackupStatus('error');
+      setTimeout(() => setBackupStatus(null), 3000);
+    }
+  };
+
+  // ─── Restore: Import backup JSON file ─────────────────────────────
+
+  const handleRestoreBackup = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+
+      // Validate
+      if (backup.app !== 'iclaw' || !backup.chats) {
+        throw new Error('Invalid backup file');
+      }
+
+      // Restore chats
+      let imported = 0;
+      for (const chat of backup.chats) {
+        if (chat.id && chat.messages) {
+          await saveChat(chat);
+          imported++;
+        }
+      }
+
+      // Restore settings
+      if (backup.settings) {
+        for (const [key, value] of Object.entries(backup.settings)) {
+          if (value) await setSetting(key, value);
+        }
+      }
+
+      // Refresh the list
+      await loadHistory();
+
+      setBackupStatus('imported');
+      setTimeout(() => setBackupStatus(null), 3000);
+
+      alert(`Restored ${imported} chats from backup (${backup.exportedAt?.slice(0, 10) || 'unknown date'}).`);
+    } catch (err) {
+      console.error('Import failed:', err);
+      setBackupStatus('error');
+      setTimeout(() => setBackupStatus(null), 3000);
+      alert('Failed to restore: ' + err.message);
+    }
+  };
+
   const formatTime = (ts) => {
     if (!ts) return '';
     const d = new Date(ts);
-    const now = new Date();
-    const diff = now - d;
+    const diff = Date.now() - d;
     if (diff < 60000) return 'just now';
     if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
     if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
@@ -150,10 +254,64 @@ export default function Sidebar({
                 <Plus size={14} /> New Chat
               </button>
 
+              {/* ─── Backup / Restore Buttons ─── */}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleExportBackup}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-mono
+                    border transition-all active:scale-[0.97]
+                    ${backupStatus === 'exported'
+                      ? 'border-neon-green/30 bg-neon-green/5 text-neon-green'
+                      : 'border-white/[0.06] bg-white/[0.02] text-steel-400 hover:border-neon-cyan/20 hover:text-steel-300'
+                    }`}
+                >
+                  <Download size={12} />
+                  {backupStatus === 'exported' ? 'Saved!' : 'Backup'}
+                </button>
+
+                <button
+                  onClick={() => restoreInputRef.current?.click()}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-mono
+                    border transition-all active:scale-[0.97]
+                    ${backupStatus === 'imported'
+                      ? 'border-neon-green/30 bg-neon-green/5 text-neon-green'
+                      : 'border-white/[0.06] bg-white/[0.02] text-steel-400 hover:border-neon-amber/20 hover:text-steel-300'
+                    }`}
+                >
+                  <Upload size={12} />
+                  {backupStatus === 'imported' ? 'Done!' : 'Restore'}
+                </button>
+
+                <input
+                  ref={restoreInputRef}
+                  type="file"
+                  accept=".json"
+                  onChange={handleRestoreBackup}
+                  className="hidden"
+                />
+              </div>
+
+              {backupStatus === 'error' && (
+                <p className="text-[10px] text-neon-pink text-center">Backup operation failed.</p>
+              )}
+
+              {/* Chat count */}
+              {chatHistory.length > 0 && (
+                <div className="flex items-center justify-between px-1 pt-1">
+                  <span className="text-[9px] font-mono text-steel-600">
+                    <Archive size={9} className="inline mr-1" />
+                    {chatHistory.length} saved chat{chatHistory.length !== 1 ? 's' : ''}
+                  </span>
+                  <span className="text-[9px] font-mono text-steel-700">
+                    {chatHistory.reduce((s, c) => s + (c.messages?.length || 0), 0)} total msgs
+                  </span>
+                </div>
+              )}
+
               {chatHistory.length === 0 ? (
                 <p className="text-[10px] text-steel-500 text-center pt-4">No saved chats yet.</p>
               ) : (
-                <div className="space-y-1 pt-2">
+                <div className="space-y-1 pt-1">
                   {chatHistory.map((chat) => (
                     <button
                       key={chat.id}
@@ -173,9 +331,7 @@ export default function Sidebar({
                             {chat.messages?.length || 0} msgs
                           </span>
                           {chat.project && (
-                            <span className="text-[9px] font-mono text-neon-amber/40">
-                              /{chat.project}
-                            </span>
+                            <span className="text-[9px] font-mono text-neon-amber/40">/{chat.project}</span>
                           )}
                         </div>
                       </div>
