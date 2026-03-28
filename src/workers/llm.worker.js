@@ -62,6 +62,56 @@ function report(type, payload) {
   self.postMessage({ type, ...payload });
 }
 
+// ─── Free Web Search (DuckDuckGo, no key needed) ───────────────────
+
+const SEARCH_TRIGGERS = /\b(latest|recent|today|current|news|price|weather|score|update|2025|2026|now|live|happening|who is|what is)\b/i;
+
+async function webSearch(query) {
+  try {
+    const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const results = [];
+
+    if (data.Abstract) results.push(`Summary: ${data.Abstract}`);
+    if (data.Answer) results.push(`Answer: ${data.Answer}`);
+
+    if (data.RelatedTopics?.length > 0) {
+      for (const topic of data.RelatedTopics.slice(0, 5)) {
+        if (topic.Text) results.push(topic.Text);
+      }
+    }
+
+    return results.length > 0 ? results.join('\n\n') : null;
+  } catch {
+    return null;
+  }
+}
+
+async function enrichWithSearch(messages) {
+  const lastMsg = messages[messages.length - 1]?.content || '';
+  if (!SEARCH_TRIGGERS.test(lastMsg)) return messages;
+
+  // Extract a search query from the message (first 100 chars)
+  const query = lastMsg.slice(0, 100).replace(/[^\w\s]/g, '');
+  const searchResults = await webSearch(query);
+
+  if (!searchResults) return messages;
+
+  // Inject search context before the last message
+  const enriched = [...messages];
+  enriched.splice(enriched.length - 1, 0, {
+    role: 'user',
+    content: `[Web search results for context — use if relevant]\n\n${searchResults}`,
+  });
+  enriched.splice(enriched.length - 1, 0, {
+    role: 'assistant',
+    content: 'I have the search results. I will use them to give an up-to-date answer.',
+  });
+
+  return enriched;
+}
+
 // ─── Gemini API ─────────────────────────────────────────────────────
 
 async function inferGemini(messages, model, attachments) {
@@ -108,14 +158,25 @@ async function inferGemini(messages, model, attachments) {
     }
   }
 
+  // Detect if user likely wants real-time info
+  const lastMsg = messages[messages.length - 1]?.content?.toLowerCase() || '';
+  const needsSearch = /\b(latest|recent|today|current|news|price|weather|score|update|2025|2026|now|live|happening|who is|what is)\b/i.test(lastMsg);
+
+  const requestBody = {
+    contents,
+    generationConfig: { temperature: 0.3, maxOutputTokens: 8192, topP: 0.9 },
+  };
+
+  // Add Google Search grounding when real-time data is needed
+  if (needsSearch) {
+    requestBody.tools = [{ google_search: {} }];
+  }
+
   const startTime = performance.now();
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents,
-      generationConfig: { temperature: 0.3, maxOutputTokens: 8192, topP: 0.9 },
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!res.ok) {
@@ -137,6 +198,8 @@ async function inferGroq(messages, model) {
   const key = apiKeys.groq;
   if (!key) throw new Error('Groq API key not set. Get one free at console.groq.com/keys');
 
+  const enrichedMessages = await enrichWithSearch(messages);
+
   const startTime = performance.now();
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -145,7 +208,7 @@ async function inferGroq(messages, model) {
       model: model || PROVIDERS.groq.defaultModel,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        ...messages.map(({ role, content }) => ({ role, content })),
+        ...enrichedMessages.map(({ role, content }) => ({ role, content })),
       ],
       temperature: 0.3, max_tokens: 8192, top_p: 0.9,
     }),
@@ -164,6 +227,8 @@ async function inferOpenRouter(messages, model) {
   const key = apiKeys.openrouter;
   if (!key) throw new Error('OpenRouter key not set. Get one free at openrouter.ai/keys');
 
+  const enrichedMessages = await enrichWithSearch(messages);
+
   const startTime = performance.now();
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -177,7 +242,7 @@ async function inferOpenRouter(messages, model) {
       model: model || PROVIDERS.openrouter.defaultModel,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        ...messages.map(({ role, content }) => ({ role, content })),
+        ...enrichedMessages.map(({ role, content }) => ({ role, content })),
       ],
       temperature: 0.3, max_tokens: 8192,
     }),
