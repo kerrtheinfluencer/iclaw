@@ -62,51 +62,94 @@ function report(type, payload) {
   self.postMessage({ type, ...payload });
 }
 
-// ─── Free Web Search (DuckDuckGo, no key needed) ───────────────────
+// ─── Free Web Search (multi-source, no key needed) ──────────────────
 
-const SEARCH_TRIGGERS = /\b(latest|recent|today|current|news|price|weather|score|update|2025|2026|now|live|happening|who is|what is)\b/i;
+let webSearchEnabled = true; // Toggle via message
 
-async function webSearch(query) {
+const SEARCH_TRIGGERS = /\b(latest|recent|today|current|news|price|weather|score|update|2025|2026|now|live|happening|who is|what is|search|look up|find out|check)\b/i;
+
+// Public SearXNG instances (fallback chain)
+const SEARXNG_INSTANCES = [
+  'https://search.sapti.me',
+  'https://searx.be',
+  'https://search.bus-hit.me',
+  'https://paulgo.io',
+];
+
+async function searchSearXNG(query) {
+  for (const instance of SEARXNG_INSTANCES) {
+    try {
+      const url = `${instance}/search?q=${encodeURIComponent(query)}&format=json&categories=general&language=en&pageno=1`;
+      const res = await fetch(url, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data.results?.length > 0) {
+        return data.results.slice(0, 6).map((r, i) => {
+          const snippet = r.content || r.title || '';
+          return `[${i + 1}] ${r.title}\n${snippet}\nSource: ${r.url}`;
+        }).join('\n\n');
+      }
+    } catch { continue; }
+  }
+  return null;
+}
+
+async function searchDuckDuckGo(query) {
   try {
-    const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`);
+    const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`, {
+      signal: AbortSignal.timeout(4000),
+    });
     if (!res.ok) return null;
     const data = await res.json();
     const results = [];
-
-    if (data.Abstract) results.push(`Summary: ${data.Abstract}`);
+    if (data.Abstract) results.push(`Summary: ${data.Abstract} (Source: ${data.AbstractURL})`);
     if (data.Answer) results.push(`Answer: ${data.Answer}`);
-
     if (data.RelatedTopics?.length > 0) {
-      for (const topic of data.RelatedTopics.slice(0, 5)) {
-        if (topic.Text) results.push(topic.Text);
+      for (const t of data.RelatedTopics.slice(0, 5)) {
+        if (t.Text) results.push(`${t.Text} ${t.FirstURL ? `(${t.FirstURL})` : ''}`);
       }
     }
-
     return results.length > 0 ? results.join('\n\n') : null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-async function enrichWithSearch(messages) {
+async function webSearch(query) {
+  // Try SearXNG first (real web results), fall back to DuckDuckGo instant answers
+  report('searchStatus', { searching: true, query });
+  const results = await searchSearXNG(query) || await searchDuckDuckGo(query);
+  report('searchStatus', { searching: false, found: !!results });
+  return results;
+}
+
+async function enrichWithSearch(messages, forceSearch = false) {
+  if (!webSearchEnabled && !forceSearch) return messages;
+
   const lastMsg = messages[messages.length - 1]?.content || '';
-  if (!SEARCH_TRIGGERS.test(lastMsg)) return messages;
+  if (!forceSearch && !SEARCH_TRIGGERS.test(lastMsg)) return messages;
 
-  // Extract a search query from the message (first 100 chars)
-  const query = lastMsg.slice(0, 100).replace(/[^\w\s]/g, '');
+  // Extract search query — use first 120 chars, clean it up
+  const query = lastMsg
+    .replace(/^(search|look up|find|check|what is|who is|tell me about)\s+/i, '')
+    .slice(0, 120)
+    .replace(/[^\w\s.'-]/g, '')
+    .trim();
+
+  if (!query) return messages;
+
   const searchResults = await webSearch(query);
-
   if (!searchResults) return messages;
 
-  // Inject search context before the last message
   const enriched = [...messages];
   enriched.splice(enriched.length - 1, 0, {
     role: 'user',
-    content: `[Web search results for context — use if relevant]\n\n${searchResults}`,
+    content: `[Live web search results — ${new Date().toLocaleDateString()} — use these to give an accurate, up-to-date answer]\n\n${searchResults}`,
   });
   enriched.splice(enriched.length - 1, 0, {
     role: 'assistant',
-    content: 'I have the search results. I will use them to give an up-to-date answer.',
+    content: 'I have current web search results. I will reference them for accuracy.',
   });
 
   return enriched;
@@ -367,6 +410,10 @@ self.onmessage = async (e) => {
       break;
     case 'setModel': activeModel = payload.model; report('modelChanged', { model: payload.model }); break;
     case 'inference': await runInference(payload); break;
+    case 'toggleSearch':
+      webSearchEnabled = payload.enabled;
+      report('searchToggled', { enabled: webSearchEnabled });
+      break;
     case 'reset': report('status', { status: 'ready', message: 'Reset.' }); break;
     default: report('error', { message: `Unknown: ${type}` });
   }
