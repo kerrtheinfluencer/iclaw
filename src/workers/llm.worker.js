@@ -68,7 +68,7 @@ let webSearchEnabled = true; // Toggle via message
 
 const SEARCH_TRIGGERS = /\b(latest|recent|today|current|news|price|weather|score|update|2025|2026|now|live|happening|who is|what is|search|look up|find out|check)\b/i;
 
-// Public SearXNG instances (fallback chain)
+// Public SearXNG instances (via CORS proxy for browser access)
 const SEARXNG_INSTANCES = [
   'https://search.sapti.me',
   'https://searx.be',
@@ -76,13 +76,15 @@ const SEARXNG_INSTANCES = [
   'https://paulgo.io',
 ];
 
+const CORS_PROXY = 'https://corsproxy.io/?url=';
+
 async function searchSearXNG(query) {
   for (const instance of SEARXNG_INSTANCES) {
     try {
-      const url = `${instance}/search?q=${encodeURIComponent(query)}&format=json&categories=general&language=en&pageno=1`;
-      const res = await fetch(url, {
+      const targetUrl = `${instance}/search?q=${encodeURIComponent(query)}&format=json&categories=general&language=en&pageno=1`;
+      const res = await fetch(CORS_PROXY + encodeURIComponent(targetUrl), {
         headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(6000),
       });
       if (!res.ok) continue;
       const data = await res.json();
@@ -99,8 +101,9 @@ async function searchSearXNG(query) {
 
 async function searchDuckDuckGo(query) {
   try {
-    const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`, {
-      signal: AbortSignal.timeout(4000),
+    const targetUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+    const res = await fetch(CORS_PROXY + encodeURIComponent(targetUrl), {
+      signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
     const data = await res.json();
