@@ -5,49 +5,91 @@
  */
 
 /**
- * Parse AI response into segments of text and code blocks.
+ * Parse AI response into segments of text, code blocks, and thinking blocks.
  */
 export function parseResponse(text) {
   const segments = [];
+
+  // First, extract <think> blocks and replace with placeholders
+  let processed = text;
+  const thinkBlocks = [];
+  const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
+  let thinkMatch;
+
+  while ((thinkMatch = thinkRegex.exec(text)) !== null) {
+    const placeholder = `__THINK_${thinkBlocks.length}__`;
+    thinkBlocks.push(thinkMatch[1].trim());
+    processed = processed.replace(thinkMatch[0], placeholder);
+  }
+
+  // Now parse code blocks from the processed text
   const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
   let lastIndex = 0;
   let match;
 
-  while ((match = codeBlockRegex.exec(text)) !== null) {
-    // Text before code block
+  while ((match = codeBlockRegex.exec(processed)) !== null) {
     if (match.index > lastIndex) {
-      const textContent = text.slice(lastIndex, match.index).trim();
+      const textContent = processed.slice(lastIndex, match.index).trim();
       if (textContent) {
-        segments.push({ type: 'text', content: textContent });
+        pushTextOrThink(segments, textContent, thinkBlocks);
       }
     }
 
-    // Code block
     const language = match[1] || 'plaintext';
     const code = match[2].trim();
-
-    // Try to detect target filename from first comment line
     const filename = extractFilename(code, language);
 
-    segments.push({
-      type: 'code',
-      language,
-      content: code,
-      filename,
-    });
-
+    segments.push({ type: 'code', language, content: code, filename });
     lastIndex = match.index + match[0].length;
   }
 
-  // Remaining text
-  if (lastIndex < text.length) {
-    const remaining = text.slice(lastIndex).trim();
+  if (lastIndex < processed.length) {
+    const remaining = processed.slice(lastIndex).trim();
     if (remaining) {
-      segments.push({ type: 'text', content: remaining });
+      pushTextOrThink(segments, remaining, thinkBlocks);
     }
   }
 
   return segments;
+}
+
+/**
+ * Push text segments, replacing think placeholders with thinking blocks.
+ */
+function pushTextOrThink(segments, text, thinkBlocks) {
+  const thinkPlaceholderRegex = /__THINK_(\d+)__/g;
+
+  if (!thinkPlaceholderRegex.test(text)) {
+    segments.push({ type: 'text', content: text });
+    return;
+  }
+
+  // Reset regex
+  thinkPlaceholderRegex.lastIndex = 0;
+  let lastIdx = 0;
+  let m;
+
+  while ((m = thinkPlaceholderRegex.exec(text)) !== null) {
+    // Text before placeholder
+    if (m.index > lastIdx) {
+      const before = text.slice(lastIdx, m.index).trim();
+      if (before) segments.push({ type: 'text', content: before });
+    }
+
+    // Thinking block
+    const blockIndex = parseInt(m[1], 10);
+    if (thinkBlocks[blockIndex]) {
+      segments.push({ type: 'thinking', content: thinkBlocks[blockIndex] });
+    }
+
+    lastIdx = m.index + m[0].length;
+  }
+
+  // Text after last placeholder
+  if (lastIdx < text.length) {
+    const after = text.slice(lastIdx).trim();
+    if (after) segments.push({ type: 'text', content: after });
+  }
 }
 
 /**
