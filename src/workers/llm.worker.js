@@ -1,41 +1,27 @@
 /**
- * iclaw — 100% Free Inference Worker
+ * iclaw v1.3 — 100% Free Inference Worker
  * 
- * ALL engines are completely free with no credit card:
- * 
- *  1. Google Gemini (Free Tier) — Gemini 2.5 Flash, no CC, 1500 RPD
- *  2. Groq (Free Tier) — Llama 3.3 70B, blazing fast, no CC
- *  3. OpenRouter (Free Models) — DeepSeek, Mistral, Qwen free models
- *  4. Local WASM — Qwen 1.5B offline, zero internet needed
- * 
- * Get free keys at:
- *  - Gemini: https://aistudio.google.com/apikey
- *  - Groq: https://console.groq.com/keys
- *  - OpenRouter: https://openrouter.ai/keys
+ * Fixes: Gemini model IDs updated, doc upload support added
  */
 
 let engine = null;
-let engineType = null; // 'gemini' | 'groq' | 'openrouter' | 'wasm'
+let engineType = null;
 let isLoading = false;
-let apiKeys = {}; // { gemini, groq, openrouter }
-
-// ─── Free Model Configs ─────────────────────────────────────────────
+let apiKeys = {};
+let activeModel = null;
 
 const PROVIDERS = {
   gemini: {
     name: 'Google Gemini',
-    endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
-    defaultModel: 'gemini-2.5-flash-preview-05-20',
+    defaultModel: 'gemini-2.5-flash',
     models: [
-      { id: 'gemini-2.5-flash-preview-05-20', label: 'Gemini 2.5 Flash', tier: 'Fast' },
-      { id: 'gemini-2.5-pro-preview-05-06', label: 'Gemini 2.5 Pro', tier: 'Best' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'Fast' },
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'Best' },
+      { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', tier: 'Legacy' },
     ],
-    keyUrl: 'https://aistudio.google.com/apikey',
-    limits: '1500 req/day, 15 RPM',
   },
   groq: {
     name: 'Groq',
-    endpoint: 'https://api.groq.com/openai/v1/chat/completions',
     defaultModel: 'llama-3.3-70b-versatile',
     models: [
       { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', tier: 'Best' },
@@ -43,12 +29,9 @@ const PROVIDERS = {
       { id: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B', tier: 'Code' },
       { id: 'qwen-qwq-32b', label: 'Qwen QWQ 32B', tier: 'Reasoning' },
     ],
-    keyUrl: 'https://console.groq.com/keys',
-    limits: '30 RPM, 14400 req/day',
   },
   openrouter: {
     name: 'OpenRouter',
-    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
     defaultModel: 'deepseek/deepseek-chat-v3-0324:free',
     models: [
       { id: 'deepseek/deepseek-chat-v3-0324:free', label: 'DeepSeek V3', tier: 'Best Free' },
@@ -56,8 +39,6 @@ const PROVIDERS = {
       { id: 'mistralai/mistral-small-3.1-24b-instruct:free', label: 'Mistral Small 3.1', tier: 'Fast' },
       { id: 'meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B', tier: 'Open' },
     ],
-    keyUrl: 'https://openrouter.ai/keys',
-    limits: '200 req/min (free models)',
   },
 };
 
@@ -73,6 +54,7 @@ const SYSTEM_PROMPT = `You are iclaw, an expert coding assistant. You are precis
 - Use modern best practices for the detected language
 - Keep explanations brief — the user is a developer
 - For HTML/web apps, write complete self-contained HTML files
+- When the user uploads a document, analyze its content thoroughly
 
 You have access to the user's local project files for context.`;
 
@@ -80,24 +62,50 @@ function report(type, payload) {
   self.postMessage({ type, ...payload });
 }
 
-// ─── Gemini API (Free, no CC) ───────────────────────────────────────
+// ─── Gemini API ─────────────────────────────────────────────────────
 
-async function inferGemini(messages, model) {
+async function inferGemini(messages, model, attachments) {
   const key = apiKeys.gemini;
   if (!key) throw new Error('Gemini API key not set. Get one free at aistudio.google.com/apikey');
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model || PROVIDERS.gemini.defaultModel}:generateContent?key=${key}`;
+  const modelId = model || PROVIDERS.gemini.defaultModel;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${key}`;
 
-  // Convert messages to Gemini format
   const contents = [];
   contents.push({ role: 'user', parts: [{ text: SYSTEM_PROMPT }] });
-  contents.push({ role: 'model', parts: [{ text: 'Understood. I am iclaw, ready to help with code.' }] });
+  contents.push({ role: 'model', parts: [{ text: 'Understood. I am iclaw, ready to help.' }] });
 
   for (const msg of messages) {
+    const parts = [{ text: msg.content }];
+
+    // Attach docs if present on this message
+    if (msg.attachments?.length > 0) {
+      for (const att of msg.attachments) {
+        parts.push({
+          inline_data: {
+            mime_type: att.mimeType,
+            data: att.base64,
+          },
+        });
+      }
+    }
+
     contents.push({
       role: msg.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: msg.content }],
+      parts,
     });
+  }
+
+  // Also attach top-level attachments to last user message
+  if (attachments?.length > 0) {
+    const lastUser = contents.findLast((c) => c.role === 'user');
+    if (lastUser) {
+      for (const att of attachments) {
+        lastUser.parts.push({
+          inline_data: { mime_type: att.mimeType, data: att.base64 },
+        });
+      }
+    }
   }
 
   const startTime = performance.now();
@@ -106,73 +114,58 @@ async function inferGemini(messages, model) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents,
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 4096,
-        topP: 0.9,
-      },
+      generationConfig: { temperature: 0.3, maxOutputTokens: 8192, topP: 0.9 },
     }),
   });
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Gemini ${res.status}: ${err.slice(0, 200)}`);
+    throw new Error(`Gemini ${res.status}: ${err.slice(0, 300)}`);
   }
 
   const data = await res.json();
-  const fullText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const fullText = data.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
   const elapsed = (performance.now() - startTime) / 1000;
   const tokens = data.usageMetadata?.candidatesTokenCount || fullText.split(' ').length;
 
   return { fullText, tokens, elapsed };
 }
 
-// ─── Groq API (Free, no CC, OpenAI-compatible) ─────────────────────
+// ─── Groq API ───────────────────────────────────────────────────────
 
 async function inferGroq(messages, model) {
   const key = apiKeys.groq;
   if (!key) throw new Error('Groq API key not set. Get one free at console.groq.com/keys');
 
   const startTime = performance.now();
-  const res = await fetch(PROVIDERS.groq.endpoint, {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key}`,
-    },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
     body: JSON.stringify({
       model: model || PROVIDERS.groq.defaultModel,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         ...messages.map(({ role, content }) => ({ role, content })),
       ],
-      temperature: 0.3,
-      max_tokens: 4096,
-      top_p: 0.9,
+      temperature: 0.3, max_tokens: 8192, top_p: 0.9,
     }),
   });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Groq ${res.status}: ${err.slice(0, 200)}`);
-  }
-
+  if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   const fullText = data.choices?.[0]?.message?.content || '';
   const elapsed = (performance.now() - startTime) / 1000;
-  const tokens = data.usage?.completion_tokens || fullText.split(' ').length;
-
-  return { fullText, tokens, elapsed };
+  return { fullText, tokens: data.usage?.completion_tokens || fullText.split(' ').length, elapsed };
 }
 
-// ─── OpenRouter API (Free models, no CC) ────────────────────────────
+// ─── OpenRouter API ─────────────────────────────────────────────────
 
 async function inferOpenRouter(messages, model) {
   const key = apiKeys.openrouter;
-  if (!key) throw new Error('OpenRouter API key not set. Get one free at openrouter.ai/keys');
+  if (!key) throw new Error('OpenRouter key not set. Get one free at openrouter.ai/keys');
 
   const startTime = performance.now();
-  const res = await fetch(PROVIDERS.openrouter.endpoint, {
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -186,215 +179,130 @@ async function inferOpenRouter(messages, model) {
         { role: 'system', content: SYSTEM_PROMPT },
         ...messages.map(({ role, content }) => ({ role, content })),
       ],
-      temperature: 0.3,
-      max_tokens: 4096,
+      temperature: 0.3, max_tokens: 8192,
     }),
   });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`OpenRouter ${res.status}: ${err.slice(0, 200)}`);
-  }
-
+  if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   const fullText = data.choices?.[0]?.message?.content || '';
   const elapsed = (performance.now() - startTime) / 1000;
-  const tokens = data.usage?.completion_tokens || fullText.split(' ').length;
-
-  return { fullText, tokens, elapsed };
+  return { fullText, tokens: data.usage?.completion_tokens || fullText.split(' ').length, elapsed };
 }
 
-// ─── Local WASM (llama.cpp, completely offline) ─────────────────────
+// ─── WASM ───────────────────────────────────────────────────────────
 
 async function initWASM() {
-  report('status', { status: 'loading', message: 'Loading WASM engine (llama.cpp)...' });
-
+  report('status', { status: 'loading', message: 'Loading WASM engine...' });
   try {
     const { Wllama } = await import(
       /* webpackIgnore: true */
       'https://cdn.jsdelivr.net/npm/@nicepkg/wllama@latest/dist/index.esm.js'
     );
-
     engine = new Wllama({
-      'single-thread/wllama.wasm':
-        'https://cdn.jsdelivr.net/npm/@nicepkg/wllama@latest/dist/single-thread/wllama.wasm',
-      'multi-thread/wllama.wasm':
-        'https://cdn.jsdelivr.net/npm/@nicepkg/wllama@latest/dist/multi-thread/wllama.wasm',
-      'multi-thread/wllama.worker.mjs':
-        'https://cdn.jsdelivr.net/npm/@nicepkg/wllama@latest/dist/multi-thread/wllama.worker.mjs',
+      'single-thread/wllama.wasm': 'https://cdn.jsdelivr.net/npm/@nicepkg/wllama@latest/dist/single-thread/wllama.wasm',
+      'multi-thread/wllama.wasm': 'https://cdn.jsdelivr.net/npm/@nicepkg/wllama@latest/dist/multi-thread/wllama.wasm',
+      'multi-thread/wllama.worker.mjs': 'https://cdn.jsdelivr.net/npm/@nicepkg/wllama@latest/dist/multi-thread/wllama.worker.mjs',
     });
-
     report('status', { status: 'loading', message: `Downloading model (${WASM_MODEL.size})...` });
-
     await engine.loadModelFromUrl(WASM_MODEL.url, {
-      n_ctx: 2048,
-      n_threads: 4,
+      n_ctx: 2048, n_threads: 4,
       progressCallback: ({ loaded, total }) => {
-        const progress = total > 0 ? loaded / total : 0;
-        report('loadProgress', {
-          progress,
-          text: `${(loaded / 1024 / 1024).toFixed(0)}MB / ${(total / 1024 / 1024).toFixed(0)}MB`,
-        });
+        report('loadProgress', { progress: total > 0 ? loaded / total : 0, text: `${(loaded / 1024 / 1024).toFixed(0)}MB / ${(total / 1024 / 1024).toFixed(0)}MB` });
       },
     });
-
     engineType = 'wasm';
     report('status', { status: 'ready', message: `${WASM_MODEL.name} loaded. Fully offline.` });
-  } catch (err) {
-    throw new Error(`WASM failed: ${err.message}`);
-  }
+  } catch (err) { throw new Error(`WASM failed: ${err.message}`); }
 }
 
 async function inferWASM(messages) {
   let prompt = `<|im_start|>system\n${SYSTEM_PROMPT}<|im_end|>\n`;
-  for (const msg of messages) {
-    prompt += `<|im_start|>${msg.role}\n${msg.content}<|im_end|>\n`;
-  }
+  for (const msg of messages) prompt += `<|im_start|>${msg.role}\n${msg.content}<|im_end|>\n`;
   prompt += '<|im_start|>assistant\n';
-
-  let fullText = '';
-  let tokenCount = 0;
+  let fullText = '', tokenCount = 0;
   const startTime = performance.now();
-
   await engine.createCompletion(prompt, {
-    nPredict: 2048,
-    temperature: 0.3,
-    top_p: 0.9,
-    repeat_penalty: 1.1,
-    onNewToken: (_token, piece) => {
-      if (piece) {
-        fullText += piece;
-        tokenCount++;
-        report('streamChunk', { requestId: 'current', delta: piece, fullText });
-      }
-    },
+    nPredict: 2048, temperature: 0.3, top_p: 0.9, repeat_penalty: 1.1,
+    onNewToken: (_t, piece) => { if (piece) { fullText += piece; tokenCount++; report('streamChunk', { requestId: 'current', delta: piece, fullText }); } },
     stopTokens: ['<|im_end|>', '<|endoftext|>'],
   });
-
-  const elapsed = (performance.now() - startTime) / 1000;
-  return { fullText, tokens: tokenCount, elapsed };
+  return { fullText, tokens: tokenCount, elapsed: (performance.now() - startTime) / 1000 };
 }
 
 // ─── Controller ─────────────────────────────────────────────────────
 
-async function initEngine(engineId, model) {
+async function initEngine(engineId) {
   if (isLoading) return;
   isLoading = true;
-
   try {
     if (engineId === 'wasm') {
       if (!engine) await initWASM();
-      else report('status', { status: 'ready', message: 'WASM already loaded.' });
+      else report('status', { status: 'ready', message: 'WASM loaded.' });
     } else if (['gemini', 'groq', 'openrouter'].includes(engineId)) {
-      const key = apiKeys[engineId];
-      if (!key) {
-        const provider = PROVIDERS[engineId];
-        report('status', {
-          status: 'needsKey',
-          message: `Enter your free ${provider.name} API key. Get one at ${provider.keyUrl}`,
-          provider: engineId,
-        });
+      if (!apiKeys[engineId]) {
+        report('status', { status: 'needsKey', message: `Enter your free ${PROVIDERS[engineId].name} API key.`, provider: engineId });
       } else {
         engineType = engineId;
-        report('status', {
-          status: 'ready',
-          message: `${PROVIDERS[engineId].name} ready (free tier).`,
-        });
+        activeModel = activeModel || PROVIDERS[engineId].defaultModel;
+        report('status', { status: 'ready', message: `${PROVIDERS[engineId].name} ready.` });
       }
     }
-  } catch (err) {
-    report('status', { status: 'error', message: err.message });
-    engine = null;
-    engineType = null;
-  } finally {
-    isLoading = false;
-  }
+  } catch (err) { report('status', { status: 'error', message: err.message }); engine = null; engineType = null; }
+  finally { isLoading = false; }
 }
 
-async function runInference({ messages, requestId, ragContext, model }) {
-  if (!engineType) {
-    report('error', { requestId, message: 'No engine selected.' });
-    return;
-  }
+async function runInference({ messages, requestId, ragContext, model, attachments }) {
+  if (!engineType) { report('error', { requestId, message: 'No engine selected.' }); return; }
 
-  // Inject RAG context
   const contextMessages = [...messages];
   if (ragContext?.length > 0) {
     const block = ragContext.map((c) => `--- ${c.filename} ---\n${c.content}`).join('\n\n');
-    contextMessages.unshift({ role: 'user', content: `[Project files for reference]\n\n${block}` });
-    contextMessages.splice(1, 0, { role: 'assistant', content: 'I can see the project files. I will reference them as needed.' });
+    contextMessages.unshift({ role: 'user', content: `[Project files]\n\n${block}` });
+    contextMessages.splice(1, 0, { role: 'assistant', content: 'I can see the project files.' });
   }
 
   report('streamStart', { requestId });
-
   try {
     let result;
+    const m = model || activeModel;
 
-    if (engineType === 'wasm') {
-      result = await inferWASM(contextMessages);
-    } else {
-      // Cloud APIs — simulate streaming for UI
-      if (engineType === 'gemini') result = await inferGemini(contextMessages, model);
-      else if (engineType === 'groq') result = await inferGroq(contextMessages, model);
-      else if (engineType === 'openrouter') result = await inferOpenRouter(contextMessages, model);
+    if (engineType === 'wasm') { result = await inferWASM(contextMessages); }
+    else if (engineType === 'gemini') { result = await inferGemini(contextMessages, m, attachments); }
+    else if (engineType === 'groq') { result = await inferGroq(contextMessages, m); }
+    else if (engineType === 'openrouter') { result = await inferOpenRouter(contextMessages, m); }
 
-      // Simulate streaming for cloud responses
+    // Simulate streaming for cloud
+    if (engineType !== 'wasm') {
       const words = result.fullText.split(' ');
-      let accumulated = '';
+      let acc = '';
       for (let i = 0; i < words.length; i++) {
-        accumulated += (i > 0 ? ' ' : '') + words[i];
-        report('streamChunk', { requestId, delta: words[i] + ' ', fullText: accumulated });
+        acc += (i > 0 ? ' ' : '') + words[i];
+        report('streamChunk', { requestId, delta: words[i] + ' ', fullText: acc });
         if (i % 6 === 0) await new Promise((r) => setTimeout(r, 5));
       }
     }
 
     report('streamEnd', {
-      requestId,
-      fullText: result.fullText,
-      stats: {
-        tokens: result.tokens,
-        elapsed: result.elapsed.toFixed(1),
-        tokPerSec: (result.tokens / result.elapsed).toFixed(1),
-        engine: engineType,
-        model: model || PROVIDERS[engineType]?.defaultModel || 'local',
-      },
+      requestId, fullText: result.fullText,
+      stats: { tokens: result.tokens, elapsed: result.elapsed.toFixed(1), tokPerSec: (result.tokens / result.elapsed).toFixed(1), engine: engineType, model: m },
     });
-  } catch (err) {
-    report('error', { requestId, message: err.message });
-  }
+  } catch (err) { report('error', { requestId, message: err.message }); }
 }
-
-// ─── Message Handler ────────────────────────────────────────────────
 
 self.onmessage = async (e) => {
   const { type, ...payload } = e.data;
-
   switch (type) {
-    case 'init':
-      await initEngine(payload.engine || 'gemini', payload.model);
-      break;
+    case 'init': await initEngine(payload.engine || 'gemini'); break;
     case 'setKey':
       apiKeys[payload.provider] = payload.key;
       engineType = payload.provider;
-      report('status', {
-        status: 'ready',
-        message: `${PROVIDERS[payload.provider].name} ready (free tier).`,
-      });
+      activeModel = activeModel || PROVIDERS[payload.provider].defaultModel;
+      report('status', { status: 'ready', message: `${PROVIDERS[payload.provider].name} ready.` });
       break;
-    case 'setModel':
-      // Just update the active model, no re-init needed
-      report('modelChanged', { model: payload.model, engine: engineType });
-      break;
-    case 'inference':
-      await runInference(payload);
-      break;
-    case 'reset':
-      report('status', { status: 'ready', message: 'Conversation reset.' });
-      break;
-    case 'getProviders':
-      report('providers', { providers: PROVIDERS });
-      break;
-    default:
-      report('error', { message: `Unknown: ${type}` });
+    case 'setModel': activeModel = payload.model; report('modelChanged', { model: payload.model }); break;
+    case 'inference': await runInference(payload); break;
+    case 'reset': report('status', { status: 'ready', message: 'Reset.' }); break;
+    default: report('error', { message: `Unknown: ${type}` });
   }
 };
