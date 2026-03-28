@@ -14,7 +14,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [messages, setMessages] = useState([]);
-  const [chatId] = useState(() => uid());
+  const [chatId, setChatId] = useState(() => uid());
   const [editingFile, setEditingFile] = useState(null);
   const [editingContent, setEditingContent] = useState('');
   const [previewHtml, setPreviewHtml] = useState(null);
@@ -24,16 +24,12 @@ export default function App() {
   const llm = useLLM();
   const workspace = useWorkspace();
 
-  // Auto-restore saved keys on mount
+  // Auto-restore saved keys
   useEffect(() => {
     (async () => {
-      const providers = ['gemini', 'groq', 'openrouter'];
-      for (const p of providers) {
+      for (const p of ['gemini', 'groq', 'openrouter']) {
         const key = await getSetting(`key_${p}`, '');
-        if (key) {
-          llm.setKey(p, key);
-          break; // Use first available
-        }
+        if (key) { llm.setKey(p, key); break; }
       }
     })();
   }, []);
@@ -51,7 +47,8 @@ export default function App() {
     return () => { document.removeEventListener('touchstart', onStart); document.removeEventListener('touchend', onEnd); };
   }, [sidebarOpen]);
 
-  const handleSend = useCallback(async (text, streamRef) => {
+  // Send message with optional attachments
+  const handleSend = useCallback(async (text, streamRef, attachments = []) => {
     const userMsg = { id: uid(), role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
 
@@ -75,9 +72,16 @@ export default function App() {
         } else if (error) {
           setMessages((prev) => [...prev, { id: uid(), role: 'assistant', content: `⚠️ ${error}` }]);
         }
-      }
+      },
+      attachments
     );
   }, [messages, llm, workspace, chatId]);
+
+  // Load a saved chat
+  const handleLoadChat = useCallback((chat) => {
+    setChatId(chat.id);
+    setMessages(chat.messages || []);
+  }, []);
 
   const handleInject = useCallback(async (path, code) => {
     if (!workspace.isOpen) return false;
@@ -87,7 +91,13 @@ export default function App() {
   }, [workspace]);
 
   const handlePreview = useCallback((html, title) => { setPreviewHtml(html); setPreviewTitle(title); }, []);
-  const handleNewChat = useCallback(() => { setMessages([]); llm.resetChat(); setSidebarOpen(false); }, [llm]);
+
+  const handleNewChat = useCallback(() => {
+    setMessages([]);
+    setChatId(uid());
+    llm.resetChat();
+    setSidebarOpen(false);
+  }, [llm]);
 
   const handleFileSelect = useCallback(async (path) => {
     const content = await workspace.openFile(path);
@@ -110,7 +120,7 @@ export default function App() {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)}
         tree={workspace.tree} projectName={workspace.projectName}
         onOpenProject={async () => { await workspace.openProject(); setSidebarOpen(false); }}
-        onFileSelect={handleFileSelect} onNewChat={handleNewChat}
+        onFileSelect={handleFileSelect} onNewChat={handleNewChat} onLoadChat={handleLoadChat}
         indexStats={workspace.indexStats} isIndexing={workspace.isIndexing}
         onReindex={workspace.reindex} hasGit={workspace.hasGit} fsSupported={workspace.fsSupported} />
 
@@ -127,10 +137,8 @@ export default function App() {
 
       {editingFile && <CodeEditor path={editingFile} initialContent={editingContent}
         onSave={handleEditorSave} onClose={() => setEditingFile(null)} />}
-
       {previewHtml && <HtmlPreview html={previewHtml} title={previewTitle}
         onClose={() => setPreviewHtml(null)} />}
-
       <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}
         onSelectEngine={llm.initModel} onSetKey={llm.setKey}
         activeEngine={llm.activeEngine} llmStatus={llm.status}
