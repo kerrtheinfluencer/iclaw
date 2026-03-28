@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0a0a0f" />
+  <meta name="description" content="iclaw — Intelligent Code Logic & Autonomous Workspace. Local AI coding on your device." />
+
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <title>iclaw</title>
+  <style>
+    /* Critical pre-render styles */
+    html, body, #root { margin:0; padding:0; height:100%; background:#0a0a0f; overflow:hidden; }
+    body { font-family:'IBM Plex Sans',sans-serif; -webkit-font-smoothing:antialiased; }
+    #splash {
+      position:fixed; inset:0; z-index:9999; display:flex; flex-direction:column;
+      align-items:center; justify-content:center; background:#0a0a0f; gap:24px;
+    }
+    #splash .logo { font-family:'Orbitron',sans-serif; font-size:2.5rem; font-weight:800;
+      background:linear-gradient(135deg,#00ff88,#00e5ff); -webkit-background-clip:text;
+      -webkit-text-fill-color:transparent; letter-spacing:0.15em; }
+    #splash .bar { width:200px; height:2px; background:#1a1a2e; border-radius:2px; overflow:hidden; }
+    #splash .bar::after { content:''; display:block; width:40%; height:100%;
+      background:linear-gradient(90deg,#00ff88,#00e5ff); border-radius:2px;
+      animation:load 1.5s ease-in-out infinite; }
+    @keyframes load { 0%{transform:translateX(-100%)} 100%{transform:translateX(350%)} }
+  </style>
+</head>
+<body>
+  <div id="splash">
+    <div class="logo">iclaw</div>
+    <div class="bar"></div>
+  </div>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
