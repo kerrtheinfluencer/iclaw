@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Send, Loader2, Sparkles, FolderOpen,
-  RotateCcw, Cpu, Settings, Paperclip, X, FileText,
+  RotateCcw, Cpu, Settings, Paperclip, X, FileText, Globe, Search,
 } from 'lucide-react';
 import ChatMessage from './ChatMessage.jsx';
 
@@ -10,6 +10,7 @@ export default function ChatView({
   onInitModel, onResetChat, onInject, onPreview,
   projectOpen, projectName, onOpenProject, fsSupported,
   statusMessage, activeEngine, onOpenSettings,
+  webSearchOn, isSearching, onToggleSearch,
 }) {
   const [input, setInput] = useState('');
   const [streamingText, setStreamingText] = useState('');
@@ -213,6 +214,18 @@ export default function ChatView({
           </button>
           <input ref={fileInputRef} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.md,.csv,.json,.html,.css,.js,.py,.ts,.jsx,.tsx,.xml,.svg" onChange={handleFileSelect} className="hidden" />
 
+          {/* Web search toggle */}
+          <button onClick={() => onToggleSearch?.(!webSearchOn)}
+            disabled={!isReady && !isGenerating}
+            className={`shrink-0 p-2.5 rounded-xl border transition-all active:scale-90 disabled:opacity-30 ${
+              webSearchOn
+                ? 'bg-neon-green/10 border-neon-green/25'
+                : 'bg-white/[0.03] border-white/[0.06]'
+            }`}
+            title={webSearchOn ? 'Web search ON' : 'Web search OFF'}>
+            <Globe size={16} className={webSearchOn ? 'text-neon-green' : 'text-steel-500'} />
+          </button>
+
           <textarea ref={textareaRef} value={input}
             onChange={(e) => { setInput(e.target.value); resizeTextarea(); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
@@ -229,10 +242,20 @@ export default function ChatView({
           </button>
         </div>
 
-        {projectOpen && isReady && (
-          <div className="flex items-center gap-1.5 mt-1.5 px-1">
-            <div className="w-1 h-1 rounded-full bg-neon-green/50" />
-            <span className="text-[9px] font-mono text-steel-600">RAG active · {projectName}</span>
+        {isReady && (
+          <div className="flex items-center gap-3 mt-1.5 px-1">
+            {webSearchOn && (
+              <span className="text-[9px] font-mono text-steel-600 flex items-center gap-1">
+                <Globe size={8} className={isSearching ? 'text-neon-cyan animate-pulse' : 'text-neon-green/50'} />
+                {isSearching ? 'Searching web...' : 'Web search on'}
+              </span>
+            )}
+            {projectOpen && (
+              <span className="text-[9px] font-mono text-steel-600 flex items-center gap-1">
+                <span className="w-1 h-1 rounded-full bg-neon-green/50" />
+                RAG · {projectName}
+              </span>
+            )}
           </div>
         )}
       </div>
