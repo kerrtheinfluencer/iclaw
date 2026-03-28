@@ -8,7 +8,9 @@ export function useLLM() {
   const [loadText, setLoadText] = useState('');
   const [activeEngine, setActiveEngine] = useState(null);
   const [activeModel, setActiveModel] = useState(null);
-  const [needsKey, setNeedsKey] = useState(null); // provider id that needs a key
+  const [needsKey, setNeedsKey] = useState(null);
+  const [webSearchOn, setWebSearchOn] = useState(true);
+  const [isSearching, setIsSearching] = useState(false);
   const streamCallbackRef = useRef(null);
   const completionCallbackRef = useRef(null);
 
@@ -50,6 +52,12 @@ export function useLLM() {
           break;
         case 'modelChanged':
           setActiveModel(payload.model);
+          break;
+        case 'searchStatus':
+          setIsSearching(payload.searching);
+          break;
+        case 'searchToggled':
+          setWebSearchOn(payload.enabled);
           break;
         case 'error':
           setStatus((prev) => prev === 'generating' ? 'ready' : 'error');
@@ -100,9 +108,15 @@ export function useLLM() {
     workerRef.current?.postMessage({ type: 'reset' });
   }, []);
 
+  const toggleSearch = useCallback((enabled) => {
+    workerRef.current?.postMessage({ type: 'toggleSearch', enabled });
+    setWebSearchOn(enabled);
+  }, []);
+
   return {
     status, statusMessage, loadProgress, loadText,
     activeEngine, activeModel, needsKey,
-    initModel, setKey, selectModel, generate, resetChat,
+    webSearchOn, isSearching,
+    initModel, setKey, selectModel, generate, resetChat, toggleSearch,
   };
 }
