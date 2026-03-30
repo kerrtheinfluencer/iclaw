@@ -8,16 +8,17 @@ let isLoading = false;
 let apiKeys = {};
 let activeModel = null;
 
+const DEFAULT_PROVIDER = 'gemini'; // Gemini 2.5 Flash = best free coding model with real internet
+
 const PROVIDERS = {
   gemini: {
     name: 'Google Gemini',
     defaultModel: 'gemini-2.5-flash',
     models: [
-      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'Fast' },
-      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'Best' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: '⚡ Default · Internet' },
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: '🧠 Most Powerful' },
     ],
-  },
-  groq: {
+  }, {
     name: 'Groq',
     defaultModel: 'llama-3.3-70b-versatile',
     models: [
@@ -172,13 +173,12 @@ async function inferGemini(messages, model, attachments) {
       }
     }
   }
-  const lastMsg = messages[messages.length - 1]?.content?.toLowerCase() || '';
-  const needsSearch = SEARCH_TRIGGERS.test(lastMsg);
+  // Always use Google Search grounding — real internet, no proxy needed
   const requestBody = {
     contents,
     generationConfig: { temperature: 0.3, maxOutputTokens: 8192, topP: 0.9 },
+    tools: [{ google_search: {} }],
   };
-  if (needsSearch) requestBody.tools = [{ google_search: {} }];
   const startTime = performance.now();
   const res = await fetch(url, {
     method: 'POST',
@@ -187,10 +187,16 @@ async function inferGemini(messages, model, attachments) {
   });
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
-  const fullText = data.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  const fullText = parts.map((p) => p.text || '').join('');
+  const sources = data.candidates?.[0]?.groundingMetadata?.groundingChunks
+    ?.map((c) => c.web?.uri).filter(Boolean) || [];
   const elapsed = (performance.now() - startTime) / 1000;
   const tokens = data.usageMetadata?.candidatesTokenCount || fullText.split(' ').length;
-  return { fullText, tokens, elapsed };
+  const textWithSources = sources.length > 0
+    ? fullText + `\n\n---\n🌐 **Sources:** ${sources.slice(0, 3).map((s, i) => `[${i+1}] ${s}`).join(' · ')}`
+    : fullText;
+  return { fullText: textWithSources, tokens, elapsed };
 }
 
 // ─── Groq ────────────────────────────────────────────────────────────
