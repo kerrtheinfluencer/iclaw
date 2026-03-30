@@ -34,6 +34,7 @@ const PROVIDERS = {
     defaultModel: 'openrouter/free',
     models: [
       { id: 'openrouter/free', label: 'Auto (Best Free)', tier: 'Smart Router' },
+      { id: 'minimax/minimax-m2.5:free', label: 'MiniMax M2.5', tier: 'Agentic' },
       { id: 'qwen/qwen3-coder:free', label: 'Qwen 3 Coder', tier: 'Code' },
       { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super 120B', tier: 'Best' },
       { id: 'meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B', tier: 'Open' },
