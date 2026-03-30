@@ -121,8 +121,10 @@ export default function App() {
   return (
     <div className="h-screen h-[100dvh] flex flex-col bg-void-950 text-steel-100 overflow-hidden scan-overlay hex-bg">
       <Header llmStatus={llm.status} projectName={workspace.projectName}
-        activeEngine={llm.activeEngine} onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
-        onSettingsOpen={() => setSettingsOpen(true)} />
+        activeEngine={llm.activeEngine} activeModel={llm.activeModel}
+        onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
+        onSettingsOpen={() => setSettingsOpen(true)}
+        onSelectModel={llm.selectModel} />
 
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)}
         tree={workspace.tree} projectName={workspace.projectName}
