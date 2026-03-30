@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Cpu, Wifi, WifiOff, Settings, ChevronDown, Check, Zap } from 'lucide-react';
+import { Cpu, Wifi, WifiOff, Settings, ChevronDown, Check, Zap, Users } from 'lucide-react';
 
 const engineMeta = {
   gemini: { // Always-on Google Search
@@ -48,7 +48,7 @@ const statusConfig = {
 
 export default function Header({
   llmStatus, projectName, activeEngine, activeModel,
-  onMenuToggle, onSettingsOpen, onSelectModel, onOpenAgent,
+  onMenuToggle, onSettingsOpen, onSelectModel, onOpenAgent, onOpenMultiAgent,
 }) {
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -145,6 +145,11 @@ export default function Header({
             {navigator.onLine ? <Wifi size={12} /> : <WifiOff size={12} />}
           </div>
 
+          <button onClick={onOpenMultiAgent}
+            className="p-1.5 rounded-lg hover:bg-purple-400/10 active:scale-90 transition-all"
+            title="Multi-Agent Mode">
+            <Users size={16} className="text-purple-400/70" />
+          </button>
           <button onClick={onOpenAgent}
             className="p-1.5 rounded-lg hover:bg-neon-amber/10 active:scale-90 transition-all"
             title="Agent Mode">
