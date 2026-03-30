@@ -1,7 +1,5 @@
 /**
- * iclaw v1.3 — 100% Free Inference Worker
- * 
- * Fixes: Gemini model IDs updated, doc upload support added
+ * iclaw v1.4 — 100% Free Inference Worker
  */
 
 let engine = null;
@@ -25,20 +23,20 @@ const PROVIDERS = {
     models: [
       { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', tier: 'Best' },
       { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B', tier: 'Fastest' },
-      { id: 'qwen/qwen3-32b', label: 'Qwen 3 32B', tier: 'Code' },
       { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout', tier: 'Vision' },
+      { id: 'qwen-qwq-32b', label: 'Qwen QwQ 32B', tier: 'Thinking' },
     ],
   },
   openrouter: {
     name: 'OpenRouter',
-    defaultModel: 'openrouter/free',
+    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
     models: [
-      { id: 'openrouter/free', label: 'Auto (Best Free)', tier: 'Smart Router' },
-      { id: 'minimax/minimax-m2.5:free', label: 'MiniMax M2.5', tier: 'Agentic' },
+      { id: 'meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B', tier: 'Best Free' },
       { id: 'qwen/qwen3-coder:free', label: 'Qwen 3 Coder', tier: 'Code' },
-      { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super 120B', tier: 'Best' },
-      { id: 'meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B', tier: 'Open' },
       { id: 'mistralai/mistral-small-3.1-24b-instruct:free', label: 'Mistral Small 3.1', tier: 'Fast' },
+      { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 120B', tier: 'Power' },
+      { id: 'deepseek/deepseek-r1:free', label: 'DeepSeek R1', tier: 'Thinking' },
+      { id: 'minimax/minimax-m2.5:free', label: 'MiniMax M2.5', tier: 'Agentic' },
     ],
   },
 };
@@ -63,20 +61,20 @@ function report(type, payload) {
   self.postMessage({ type, ...payload });
 }
 
-// ─── Free Web Search (multi-source, no key needed) ──────────────────
+// Expose provider/model list so UI can read it
+report('providerList', { providers: PROVIDERS });
 
-let webSearchEnabled = true; // Toggle via message
+// ─── Free Web Search ─────────────────────────────────────────────────
+
+let webSearchEnabled = true;
 
 const SEARCH_TRIGGERS = /\b(latest|recent|today|current|news|price|weather|score|update|2025|2026|now|live|happening|who is|what is|search|look up|find out|check)\b/i;
-
-// Public SearXNG instances (via CORS proxy for browser access)
 const SEARXNG_INSTANCES = [
   'https://search.sapti.me',
   'https://searx.be',
   'https://search.bus-hit.me',
   'https://paulgo.io',
 ];
-
 const CORS_PROXY = 'https://corsproxy.io/?url=';
 
 async function searchSearXNG(query) {
@@ -103,9 +101,7 @@ async function searchSearXNG(query) {
 async function searchDuckDuckGo(query) {
   try {
     const targetUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-    const res = await fetch(CORS_PROXY + encodeURIComponent(targetUrl), {
-      signal: AbortSignal.timeout(5000),
-    });
+    const res = await fetch(CORS_PROXY + encodeURIComponent(targetUrl), { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return null;
     const data = await res.json();
     const results = [];
@@ -121,7 +117,6 @@ async function searchDuckDuckGo(query) {
 }
 
 async function webSearch(query) {
-  // Try SearXNG first (real web results), fall back to DuckDuckGo instant answers
   report('searchStatus', { searching: true, query });
   const results = await searchSearXNG(query) || await searchDuckDuckGo(query);
   report('searchStatus', { searching: false, found: !!results });
@@ -130,22 +125,14 @@ async function webSearch(query) {
 
 async function enrichWithSearch(messages, forceSearch = false) {
   if (!webSearchEnabled && !forceSearch) return messages;
-
   const lastMsg = messages[messages.length - 1]?.content || '';
   if (!forceSearch && !SEARCH_TRIGGERS.test(lastMsg)) return messages;
-
-  // Extract search query — use first 120 chars, clean it up
   const query = lastMsg
     .replace(/^(search|look up|find|check|what is|who is|tell me about)\s+/i, '')
-    .slice(0, 120)
-    .replace(/[^\w\s.'-]/g, '')
-    .trim();
-
+    .slice(0, 120).replace(/[^\w\s.'-]/g, '').trim();
   if (!query) return messages;
-
   const searchResults = await webSearch(query);
   if (!searchResults) return messages;
-
   const enriched = [...messages];
   enriched.splice(enriched.length - 1, 0, {
     role: 'user',
@@ -155,98 +142,63 @@ async function enrichWithSearch(messages, forceSearch = false) {
     role: 'assistant',
     content: 'I have current web search results. I will reference them for accuracy.',
   });
-
   return enriched;
 }
 
-// ─── Gemini API ─────────────────────────────────────────────────────
+// ─── Gemini ──────────────────────────────────────────────────────────
 
 async function inferGemini(messages, model, attachments) {
   const key = apiKeys.gemini;
   if (!key) throw new Error('Gemini API key not set. Get one free at aistudio.google.com/apikey');
-
   const modelId = model || PROVIDERS.gemini.defaultModel;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${key}`;
-
   const contents = [];
   contents.push({ role: 'user', parts: [{ text: SYSTEM_PROMPT }] });
   contents.push({ role: 'model', parts: [{ text: 'Understood. I am iclaw, ready to help.' }] });
-
   for (const msg of messages) {
     const parts = [{ text: msg.content }];
-
-    // Attach docs if present on this message
     if (msg.attachments?.length > 0) {
       for (const att of msg.attachments) {
-        parts.push({
-          inline_data: {
-            mime_type: att.mimeType,
-            data: att.base64,
-          },
-        });
+        parts.push({ inline_data: { mime_type: att.mimeType, data: att.base64 } });
       }
     }
-
-    contents.push({
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts,
-    });
+    contents.push({ role: msg.role === 'assistant' ? 'model' : 'user', parts });
   }
-
-  // Also attach top-level attachments to last user message
   if (attachments?.length > 0) {
     const lastUser = contents.findLast((c) => c.role === 'user');
     if (lastUser) {
       for (const att of attachments) {
-        lastUser.parts.push({
-          inline_data: { mime_type: att.mimeType, data: att.base64 },
-        });
+        lastUser.parts.push({ inline_data: { mime_type: att.mimeType, data: att.base64 } });
       }
     }
   }
-
-  // Detect if user likely wants real-time info
   const lastMsg = messages[messages.length - 1]?.content?.toLowerCase() || '';
-  const needsSearch = /\b(latest|recent|today|current|news|price|weather|score|update|2025|2026|now|live|happening|who is|what is)\b/i.test(lastMsg);
-
+  const needsSearch = SEARCH_TRIGGERS.test(lastMsg);
   const requestBody = {
     contents,
     generationConfig: { temperature: 0.3, maxOutputTokens: 8192, topP: 0.9 },
   };
-
-  // Add Google Search grounding when real-time data is needed
-  if (needsSearch) {
-    requestBody.tools = [{ google_search: {} }];
-  }
-
+  if (needsSearch) requestBody.tools = [{ google_search: {} }];
   const startTime = performance.now();
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(requestBody),
   });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Gemini ${res.status}: ${err.slice(0, 300)}`);
-  }
-
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   const fullText = data.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
   const elapsed = (performance.now() - startTime) / 1000;
   const tokens = data.usageMetadata?.candidatesTokenCount || fullText.split(' ').length;
-
   return { fullText, tokens, elapsed };
 }
 
-// ─── Groq API ───────────────────────────────────────────────────────
+// ─── Groq ────────────────────────────────────────────────────────────
 
 async function inferGroq(messages, model) {
   const key = apiKeys.groq;
   if (!key) throw new Error('Groq API key not set. Get one free at console.groq.com/keys');
-
   const enrichedMessages = await enrichWithSearch(messages);
-
   const startTime = performance.now();
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -260,7 +212,6 @@ async function inferGroq(messages, model) {
       temperature: 0.3, max_tokens: 8192, top_p: 0.9,
     }),
   });
-
   if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   const fullText = data.choices?.[0]?.message?.content || '';
@@ -268,21 +219,19 @@ async function inferGroq(messages, model) {
   return { fullText, tokens: data.usage?.completion_tokens || fullText.split(' ').length, elapsed };
 }
 
-// ─── OpenRouter API ─────────────────────────────────────────────────
+// ─── OpenRouter ──────────────────────────────────────────────────────
 
 async function inferOpenRouter(messages, model) {
   const key = apiKeys.openrouter;
   if (!key) throw new Error('OpenRouter key not set. Get one free at openrouter.ai/keys');
-
   const enrichedMessages = await enrichWithSearch(messages);
-
   const startTime = performance.now();
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${key}`,
-      'HTTP-Referer': 'https://iclaw.app',
+      'HTTP-Referer': 'https://kerrtheinfluencer.github.io/iclaw/',
       'X-Title': 'iclaw',
     },
     body: JSON.stringify({
@@ -294,7 +243,6 @@ async function inferOpenRouter(messages, model) {
       temperature: 0.3, max_tokens: 8192,
     }),
   });
-
   if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   const fullText = data.choices?.[0]?.message?.content || '';
@@ -302,7 +250,7 @@ async function inferOpenRouter(messages, model) {
   return { fullText, tokens: data.usage?.completion_tokens || fullText.split(' ').length, elapsed };
 }
 
-// ─── WASM ───────────────────────────────────────────────────────────
+// ─── WASM ────────────────────────────────────────────────────────────
 
 async function initWASM() {
   report('status', { status: 'loading', message: 'Loading WASM engine...' });
@@ -336,13 +284,19 @@ async function inferWASM(messages) {
   const startTime = performance.now();
   await engine.createCompletion(prompt, {
     nPredict: 2048, temperature: 0.3, top_p: 0.9, repeat_penalty: 1.1,
-    onNewToken: (_t, piece) => { if (piece) { fullText += piece; tokenCount++; report('streamChunk', { requestId: 'current', delta: piece, fullText }); } },
+    onNewToken: (_t, piece) => {
+      if (piece) {
+        fullText += piece;
+        tokenCount++;
+        report('streamChunk', { requestId: 'current', delta: piece, fullText });
+      }
+    },
     stopTokens: ['<|im_end|>', '<|endoftext|>'],
   });
   return { fullText, tokens: tokenCount, elapsed: (performance.now() - startTime) / 1000 };
 }
 
-// ─── Controller ─────────────────────────────────────────────────────
+// ─── Controller ──────────────────────────────────────────────────────
 
 async function initEngine(engineId) {
   if (isLoading) return;
@@ -360,12 +314,14 @@ async function initEngine(engineId) {
         report('status', { status: 'ready', message: `${PROVIDERS[engineId].name} ready.` });
       }
     }
-  } catch (err) { report('status', { status: 'error', message: err.message }); engine = null; engineType = null; }
-  finally { isLoading = false; }
+  } catch (err) {
+    report('status', { status: 'error', message: err.message });
+    engine = null; engineType = null;
+  } finally { isLoading = false; }
 }
 
 async function runInference({ messages, requestId, ragContext, model, attachments }) {
-  if (!engineType) { report('error', { requestId, message: 'No engine selected.' }); return; }
+  if (!engineType) { report('error', { requestId, message: 'No engine selected. Open Settings and save your API key.' }); return; }
 
   const contextMessages = [...messages];
   if (ragContext?.length > 0) {
@@ -378,14 +334,14 @@ async function runInference({ messages, requestId, ragContext, model, attachment
   try {
     let result;
     const m = model || activeModel;
+    if (engineType === 'wasm') result = await inferWASM(contextMessages);
+    else if (engineType === 'gemini') result = await inferGemini(contextMessages, m, attachments);
+    else if (engineType === 'groq') result = await inferGroq(contextMessages, m);
+    else if (engineType === 'openrouter') result = await inferOpenRouter(contextMessages, m);
 
-    if (engineType === 'wasm') { result = await inferWASM(contextMessages); }
-    else if (engineType === 'gemini') { result = await inferGemini(contextMessages, m, attachments); }
-    else if (engineType === 'groq') { result = await inferGroq(contextMessages, m); }
-    else if (engineType === 'openrouter') { result = await inferOpenRouter(contextMessages, m); }
-
-    // Simulate streaming for cloud
+    // Simulate streaming for cloud providers
     if (engineType !== 'wasm') {
+      // Split on spaces but preserve <think> blocks for live streaming
       const words = result.fullText.split(' ');
       let acc = '';
       for (let i = 0; i < words.length; i++) {
@@ -397,7 +353,13 @@ async function runInference({ messages, requestId, ragContext, model, attachment
 
     report('streamEnd', {
       requestId, fullText: result.fullText,
-      stats: { tokens: result.tokens, elapsed: result.elapsed.toFixed(1), tokPerSec: (result.tokens / result.elapsed).toFixed(1), engine: engineType, model: m },
+      stats: {
+        tokens: result.tokens,
+        elapsed: result.elapsed.toFixed(1),
+        tokPerSec: (result.tokens / result.elapsed).toFixed(1),
+        engine: engineType,
+        model: m,
+      },
     });
   } catch (err) { report('error', { requestId, message: err.message }); }
 }
@@ -412,18 +374,17 @@ self.onmessage = async (e) => {
       activeModel = activeModel || PROVIDERS[payload.provider].defaultModel;
       report('status', { status: 'ready', message: `${PROVIDERS[payload.provider].name} ready.` });
       break;
-    case 'setModel': activeModel = payload.model; report('modelChanged', { model: payload.model }); break;
+    case 'setModel':
+      activeModel = payload.model;
+      report('modelChanged', { model: payload.model });
+      break;
     case 'inference': await runInference(payload); break;
     case 'toggleSearch':
       webSearchEnabled = payload.enabled;
       report('searchToggled', { enabled: webSearchEnabled });
       break;
     case 'reset':
-      if (engineType) {
-        report('status', { status: 'ready', message: 'Ready.' });
-      } else {
-        report('status', { status: 'idle', message: '' });
-      }
+      report('status', { status: engineType ? 'ready' : 'idle', message: engineType ? 'Ready.' : '' });
       break;
     default: report('error', { message: `Unknown: ${type}` });
   }
