@@ -79,6 +79,7 @@ export function useLLM() {
     workerRef.current?.postMessage({ type: 'setKey', provider, key });
     setActiveEngine(provider);
     setNeedsKey(null);
+    setStatus('ready');
   }, []);
 
   const selectModel = useCallback((model) => {
