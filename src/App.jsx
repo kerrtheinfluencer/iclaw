@@ -24,14 +24,18 @@ export default function App() {
   const llm = useLLM();
   const workspace = useWorkspace();
 
-  // Auto-restore saved keys
+  // Auto-restore saved keys — wait for worker to be ready first
   useEffect(() => {
-    (async () => {
+    const timer = setTimeout(async () => {
       for (const p of ['gemini', 'groq', 'openrouter']) {
         const key = await getSetting(`key_${p}`, '');
-        if (key) { llm.setKey(p, key); break; }
+        if (key) {
+          llm.setKey(p, key);
+          break;
+        }
       }
-    })();
+    }, 200); // small delay so worker finishes initializing
+    return () => clearTimeout(timer);
   }, []);
 
   // Swipe gestures
