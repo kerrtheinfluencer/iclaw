@@ -20,13 +20,17 @@ export default function App() {
   const [previewHtml, setPreviewHtml] = useState(null);
   const [previewTitle, setPreviewTitle] = useState('');
   const touchStartX = useRef(0);
+  const keyRestoredRef = useRef(false);
 
   const llm = useLLM();
   const workspace = useWorkspace();
 
-  // Auto-restore saved keys — wait for worker to be ready first
+  // Auto-restore saved keys — triggered once worker reports idle status
   useEffect(() => {
-    const timer = setTimeout(async () => {
+    if (keyRestoredRef.current) return;
+    if (llm.status !== 'idle' && llm.status !== 'needsKey') return;
+    keyRestoredRef.current = true;
+    (async () => {
       for (const p of ['gemini', 'groq', 'openrouter']) {
         const key = await getSetting(`key_${p}`, '');
         if (key) {
@@ -34,9 +38,8 @@ export default function App() {
           break;
         }
       }
-    }, 200); // small delay so worker finishes initializing
-    return () => clearTimeout(timer);
-  }, []);
+    })();
+  }, [llm.status]);
 
   // Swipe gestures
   useEffect(() => {
