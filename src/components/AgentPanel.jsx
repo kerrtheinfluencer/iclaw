@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   X, Play, Square, Trash2, ChevronDown, ChevronRight,
   FileText, Globe, Terminal, Check, AlertCircle, Loader2,
-  Zap, FolderOpen, Eye, Bot,
+  Zap, FolderOpen, Eye, Bot, Archive,
 } from 'lucide-react';
 
 const STEP_ICONS = {
@@ -67,6 +67,33 @@ function AgentStep({ step, index }) {
       )}
     </div>
   );
+}
+
+// Zip download using JSZip via CDN
+async function downloadFilesAsZip(files) {
+  // Dynamically load JSZip
+  if (!window.JSZip) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+  const zip = new window.JSZip();
+  for (const [path, content] of Object.entries(files)) {
+    zip.file(path, content);
+  }
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `iclaw-agent-${Date.now()}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 export default function AgentPanel({
@@ -224,6 +251,15 @@ export default function AgentPanel({
                 </button>
               ))}
             </div>
+            {fileList.length > 0 && (
+              <button
+                onClick={() => downloadFilesAsZip(files)}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-mono border border-neon-cyan/20 text-neon-cyan/80 bg-neon-cyan/5 hover:bg-neon-cyan/10 active:scale-[0.98] transition-all mt-1"
+              >
+                <Archive size={12} />
+                Download all as .zip
+              </button>
+            )}
           </div>
         )}
 

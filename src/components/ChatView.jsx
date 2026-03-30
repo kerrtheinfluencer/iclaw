@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Send, Loader2, Sparkles, FolderOpen,
-  RotateCcw, Cpu, Settings, Paperclip, X, FileText, Globe, Search, Zap,
+  RotateCcw, Cpu, Settings, Paperclip, X, FileText, Globe, Search, Zap, Mic, MicOff,
 } from 'lucide-react';
 import ChatMessage from './ChatMessage.jsx';
 
@@ -18,6 +18,8 @@ export default function ChatView({
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef(null);
   const setStreamRef = useRef(setStreamingText);
   setStreamRef.current = setStreamingText;
 
@@ -33,6 +35,39 @@ export default function ChatView({
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
   }, []);
+
+  const toggleVoice = useCallback(() => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      alert('Voice input not supported on this browser.');
+      return;
+    }
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const rec = new SR();
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.lang = 'en-US';
+    rec.onstart = () => setIsListening(true);
+    rec.onresult = (e) => {
+      const transcript = Array.from(e.results).map(r => r[0].transcript).join('');
+      setInput(transcript);
+      resizeTextarea();
+    };
+    rec.onend = () => {
+      setIsListening(false);
+      // Auto-send if we got a result
+      setTimeout(() => {
+        if (textareaRef.current?.value?.trim()) handleSend();
+      }, 300);
+    };
+    rec.onerror = () => setIsListening(false);
+    recognitionRef.current = rec;
+    rec.start();
+  }, [isListening, resizeTextarea]);
 
   const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files || []);
@@ -232,6 +267,20 @@ export default function ChatView({
             }`}
             title={webSearchOn ? 'Web search ON' : 'Web search OFF'}>
             <Globe size={16} className={webSearchOn ? 'text-neon-green' : 'text-steel-500'} />
+          </button>
+
+          {/* Voice input */}
+          <button onClick={toggleVoice}
+            disabled={!isReady && !isGenerating}
+            className={`shrink-0 p-2.5 rounded-xl border transition-all active:scale-90 disabled:opacity-30 ${
+              isListening
+                ? 'bg-neon-pink/15 border-neon-pink/30 animate-pulse'
+                : 'bg-white/[0.03] border-white/[0.06]'
+            }`}
+            title={isListening ? 'Listening... tap to stop' : 'Voice input'}>
+            {isListening
+              ? <MicOff size={16} className="text-neon-pink" />
+              : <Mic size={16} className="text-steel-500" />}
           </button>
 
           <textarea ref={textareaRef} value={input}
