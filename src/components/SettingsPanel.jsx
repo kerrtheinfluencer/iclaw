@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
-  X, Cpu, Check, Eye, EyeOff, Globe, Zap,
-  ExternalLink, AlertCircle, HardDrive,
+  X, Cpu, Check, Eye, EyeOff,
+  ExternalLink, HardDrive,
 } from 'lucide-react';
 import { getSetting, setSetting, getStorageEstimate } from '../utils/db.js';
 
@@ -34,8 +34,8 @@ const PROVIDERS = {
     models: [
       { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', tier: 'Best' },
       { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B', tier: 'Fastest' },
-      { id: 'qwen/qwen3-32b', label: 'Qwen 3 32B', tier: 'Code' },
       { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout', tier: 'Vision' },
+      { id: 'qwen-qwq-32b', label: 'Qwen QwQ 32B', tier: 'Thinking' },
     ],
   },
   openrouter: {
@@ -47,14 +47,14 @@ const PROVIDERS = {
     tagColor: 'text-purple-400 bg-purple-400/10',
     keyUrl: 'https://openrouter.ai/keys',
     keyPlaceholder: 'sk-or-...',
-    limits: 'Free models: MiniMax, Qwen Coder, Nemotron, Llama',
+    limits: 'Free models · Must enable free endpoints in guardrails',
     models: [
-      { id: 'openrouter/free', label: 'Auto (Best Free)', tier: 'Smart Router' },
-      { id: 'minimax/minimax-m2.5:free', label: 'MiniMax M2.5', tier: 'Agentic' },
-      { id: 'qwen/qwen3-coder:free', label: 'Qwen 3 Coder', tier: 'Code' },
-      { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 3 Super 120B', tier: 'Best' },
-      { id: 'meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B', tier: 'Open' },
-      { id: 'mistralai/mistral-small-3.1-24b-instruct:free', label: 'Mistral Small 3.1', tier: 'Fast' },
+      { id: 'mistralai/mistral-7b-instruct:free', label: 'Mistral 7B', tier: 'Most Reliable' },
+      { id: 'microsoft/phi-3-mini-128k-instruct:free', label: 'Phi-3 Mini 128K', tier: 'Fast' },
+      { id: 'google/gemma-3-27b-it:free', label: 'Gemma 3 27B', tier: 'Smart' },
+      { id: 'meta-llama/llama-3.2-3b-instruct:free', label: 'Llama 3.2 3B', tier: 'Compact' },
+      { id: 'qwen/qwen-2.5-coder-32b-instruct:free', label: 'Qwen 2.5 Coder 32B', tier: 'Code' },
+      { id: 'deepseek/deepseek-r1:free', label: 'DeepSeek R1', tier: 'Thinking' },
     ],
   },
 };
@@ -99,7 +99,6 @@ export default function SettingsPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
-        {/* Free badge */}
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neon-green/[0.04] border border-neon-green/15">
           <span className="text-sm">🆓</span>
           <p className="text-[11px] text-neon-green/80 font-medium">
@@ -107,7 +106,6 @@ export default function SettingsPanel({
           </p>
         </div>
 
-        {/* ── Cloud Providers ── */}
         {Object.entries(PROVIDERS).map(([id, prov]) => {
           const isActive = activeEngine === id;
           const hasKey = !!keys[id];
@@ -116,11 +114,8 @@ export default function SettingsPanel({
             <section key={id} className={`rounded-xl border p-3 space-y-3 transition-all ${
               isActive ? prov.borderColor + ' ' + prov.bgColor : 'border-white/[0.06]'
             }`}>
-              {/* Header */}
               <button
-                onClick={() => {
-                  if (hasKey) onSelectEngine(id);
-                }}
+                onClick={() => { if (hasKey) onSelectEngine(id); }}
                 className="w-full flex items-center justify-between"
               >
                 <div className="flex items-center gap-2">
@@ -138,7 +133,6 @@ export default function SettingsPanel({
                 </div>
               </button>
 
-              {/* API Key input */}
               <div className="flex items-center gap-2">
                 <div className="flex-1 relative">
                   <input
@@ -165,7 +159,6 @@ export default function SettingsPanel({
                 </button>
               </div>
 
-              {/* Get key link */}
               <a
                 href={prov.keyUrl}
                 target="_blank"
@@ -173,10 +166,9 @@ export default function SettingsPanel({
                 className="flex items-center gap-1.5 text-[10px] text-steel-500 hover:text-steel-300 transition-colors"
               >
                 <ExternalLink size={10} />
-                Get free API key →  {prov.keyUrl.replace('https://', '')}
+                Get free API key → {prov.keyUrl.replace('https://', '')}
               </a>
 
-              {/* Model selector (only when active) */}
               {isActive && hasKey && (
                 <div className="space-y-1 pt-1 border-t border-white/[0.04]">
                   <span className="text-[10px] font-mono text-steel-500 uppercase">Model</span>
@@ -197,7 +189,7 @@ export default function SettingsPanel({
           );
         })}
 
-        {/* ── Local WASM ── */}
+        {/* WASM */}
         <section className={`rounded-xl border p-3 space-y-2 transition-all ${
           activeEngine === 'wasm' ? 'border-neon-green/30 bg-neon-green/[0.03]' : 'border-white/[0.06]'
         }`}>
@@ -215,30 +207,19 @@ export default function SettingsPanel({
           </button>
           <p className="text-[10px] text-steel-600 leading-relaxed pl-6">
             Runs entirely on your device. No API key, no account, no internet.
-            Slower and smaller model but completely private and free forever.
           </p>
         </section>
 
-        {/* ── Storage ── */}
-        <section>
-          <h3 className="text-xs font-mono text-steel-400 uppercase tracking-wider mb-3">Storage</h3>
-          {storage ? (
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-mono">
-                <span className="text-steel-400">Used</span>
-                <span className="text-steel-200">{storage.usedMB} MB</span>
-              </div>
-              <div className="w-full h-1.5 bg-void-300 rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-neon-green to-neon-cyan rounded-full"
-                  style={{ width: `${Math.min(parseFloat(storage.percentUsed), 100)}%` }} />
-              </div>
-            </div>
-          ) : <p className="text-xs text-steel-500">Unavailable.</p>}
-        </section>
+        {/* OpenRouter note */}
+        <div className="px-3 py-2 rounded-lg bg-neon-amber/[0.04] border border-neon-amber/15">
+          <p className="text-[10px] text-neon-amber/80 leading-relaxed">
+            <strong>OpenRouter users:</strong> Go to openrouter.ai/workspaces/default/guardrails and enable both <em>"free endpoints that may train on inputs"</em> toggles to unlock all free models.
+          </p>
+        </div>
 
         <section className="pb-8">
           <p className="text-[10px] text-steel-600 leading-relaxed">
-            iclaw v1.2 — 100% free AI coding workspace. Keys stored locally in IndexedDB on your device.
+            iclaw v1.4 — 100% free AI coding workspace. Keys stored locally in IndexedDB.
           </p>
         </section>
       </div>

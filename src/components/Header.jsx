@@ -21,12 +21,12 @@ const engineMeta = {
   openrouter: {
     icon: '◈', label: 'Router', color: 'text-purple-400', border: 'border-purple-400/30',
     models: [
-      { id: 'meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B', tier: 'Best Free' },
-      { id: 'qwen/qwen3-coder:free', label: 'Qwen 3 Coder', tier: 'Code' },
-      { id: 'mistralai/mistral-small-3.1-24b-instruct:free', label: 'Mistral Small 3.1', tier: 'Fast' },
-      { id: 'nvidia/nemotron-3-super-120b-a12b:free', label: 'Nemotron 120B', tier: 'Power' },
+      { id: 'mistralai/mistral-7b-instruct:free', label: 'Mistral 7B', tier: 'Most Reliable' },
+      { id: 'microsoft/phi-3-mini-128k-instruct:free', label: 'Phi-3 Mini 128K', tier: 'Fast' },
+      { id: 'google/gemma-3-27b-it:free', label: 'Gemma 3 27B', tier: 'Smart' },
+      { id: 'meta-llama/llama-3.2-3b-instruct:free', label: 'Llama 3.2 3B', tier: 'Compact' },
+      { id: 'qwen/qwen-2.5-coder-32b-instruct:free', label: 'Qwen 2.5 Coder 32B', tier: 'Code' },
       { id: 'deepseek/deepseek-r1:free', label: 'DeepSeek R1', tier: 'Thinking' },
-      { id: 'minimax/minimax-m2.5:free', label: 'MiniMax M2.5', tier: 'Agentic' },
     ],
   },
   wasm: {
