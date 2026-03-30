@@ -173,7 +173,7 @@ export default function ChatView({
           {messages.map((msg, i) => (
             <ChatMessage key={msg.id || i} message={msg} onInject={onInject} onPreview={onPreview} projectOpen={projectOpen} />
           ))}
-          {streamingText && <ChatMessage message={{ role: 'assistant', content: streamingText }} onInject={onInject} onPreview={onPreview} projectOpen={projectOpen} />}
+          {streamingText && <ChatMessage message={{ role: 'assistant', content: streamingText, isStreaming: true }} onInject={onInject} onPreview={onPreview} projectOpen={projectOpen} />}
           {isGenerating && !streamingText && (
             <div className="flex items-center gap-2 px-1 py-2">
               <div className="flex gap-1">{[0, 150, 300].map((d) => <div key={d} className="w-1.5 h-1.5 rounded-full bg-neon-cyan animate-bounce" style={{ animationDelay: `${d}ms` }} />)}</div>
