@@ -1,43 +1,44 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   X, Maximize2, Minimize2, RotateCcw, ExternalLink,
   Smartphone, Monitor, Code2, Eye,
 } from 'lucide-react';
 
-/**
- * Sandboxed HTML preview component.
- * Renders HTML/CSS/JS in a secure iframe with device frame options.
- */
 export default function HtmlPreview({ html, title, onClose }) {
-  const iframeRef = useRef(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [viewMode, setViewMode] = useState('preview'); // 'preview' | 'code'
-  const [deviceFrame, setDeviceFrame] = useState('mobile'); // 'mobile' | 'desktop'
+  const [viewMode, setViewMode] = useState('preview');
+  const [deviceFrame, setDeviceFrame] = useState('mobile');
   const [error, setError] = useState(null);
-  const [key, setKey] = useState(0); // For forcing iframe refresh
-
-  // Create blob URL for the HTML
-  const blobUrl = useRef(null);
+  const [blobUrl, setBlobUrl] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    if (blobUrl.current) URL.revokeObjectURL(blobUrl.current);
+    if (!html) return;
 
-    // Wrap HTML to catch errors and inject viewport meta if missing
+    // Clean up previous blob
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+
     let processedHtml = html;
 
-    if (!processedHtml.includes('<meta name="viewport"')) {
-      processedHtml = processedHtml.replace(
-        '<head>',
-        '<head>\n<meta name="viewport" content="width=device-width, initial-scale=1.0">'
-      );
+    // Inject viewport if missing
+    if (!processedHtml.includes('name="viewport"')) {
+      if (processedHtml.includes('<head>')) {
+        processedHtml = processedHtml.replace(
+          '<head>',
+          '<head>\n<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+        );
+      }
     }
 
-    // Add error catching script
-    const errorScript = `
-<script>
-  window.onerror = function(msg, url, line) {
-    parent.postMessage({ type: 'previewError', message: msg, line: line }, '*');
-  };
+    // Inject error catcher
+    const errorScript = `<script>
+window.onerror = function(msg, url, line) {
+  parent.postMessage({ type: 'previewError', message: msg, line: line }, '*');
+  return false;
+};
+window.addEventListener('unhandledrejection', function(e) {
+  parent.postMessage({ type: 'previewError', message: e.reason?.message || String(e.reason), line: 0 }, '*');
+});
 </script>`;
 
     if (processedHtml.includes('</body>')) {
@@ -46,53 +47,46 @@ export default function HtmlPreview({ html, title, onClose }) {
       processedHtml += errorScript;
     }
 
-    const blob = new Blob([processedHtml], { type: 'text/html' });
-    blobUrl.current = URL.createObjectURL(blob);
+    const blob = new Blob([processedHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    setBlobUrl(url);
     setError(null);
 
-    return () => {
-      if (blobUrl.current) URL.revokeObjectURL(blobUrl.current);
-    };
-  }, [html, key]);
+    return () => URL.revokeObjectURL(url);
+  }, [html, refreshKey]);
 
-  // Listen for errors from iframe
+  // Listen for iframe errors
   useEffect(() => {
     const handler = (e) => {
       if (e.data?.type === 'previewError') {
-        setError(`Line ${e.data.line}: ${e.data.message}`);
+        setError(`JS Error${e.data.line ? ` (line ${e.data.line})` : ''}: ${e.data.message}`);
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, []);
 
-  const refresh = () => setKey((k) => k + 1);
-
   const openExternal = () => {
-    if (blobUrl.current) window.open(blobUrl.current, '_blank');
+    if (blobUrl) window.open(blobUrl, '_blank');
   };
 
   if (!html) return null;
 
-  const containerClass = isFullscreen
-    ? 'fixed inset-0 z-[60] bg-void-950'
-    : 'fixed inset-0 z-[60] bg-void-950 safe-top safe-bottom';
-
   return (
-    <div className={containerClass}>
-      {/* ── Toolbar ── */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-white/5 glass-panel">
+    <div className={`fixed inset-0 z-[60] flex flex-col bg-void-950 safe-top safe-bottom`}>
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-white/5 glass-panel shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           <button onClick={onClose} className="p-1.5 rounded hover:bg-white/5 active:scale-90">
             <X size={16} className="text-steel-400" />
           </button>
-          <span className="text-xs font-mono text-steel-200 truncate">
+          <span className="text-xs font-mono text-steel-200 truncate max-w-[150px]">
             {title || 'Preview'}
           </span>
         </div>
 
         <div className="flex items-center gap-1">
-          {/* View toggle: preview / code */}
+          {/* Preview / Code toggle */}
           <div className="flex bg-white/[0.03] rounded-lg border border-white/[0.06] p-0.5">
             <button
               onClick={() => setViewMode('preview')}
@@ -134,54 +128,49 @@ export default function HtmlPreview({ html, title, onClose }) {
             </div>
           )}
 
-          <button onClick={refresh} className="p-1.5 rounded hover:bg-white/5 active:scale-90">
+          <button onClick={() => setRefreshKey(k => k + 1)} className="p-1.5 rounded hover:bg-white/5 active:scale-90" title="Refresh">
             <RotateCcw size={13} className="text-steel-400" />
           </button>
-          <button onClick={openExternal} className="p-1.5 rounded hover:bg-white/5 active:scale-90">
+          <button onClick={openExternal} className="p-1.5 rounded hover:bg-white/5 active:scale-90" title="Open in new tab">
             <ExternalLink size={13} className="text-steel-400" />
           </button>
-          <button
-            onClick={() => setIsFullscreen(!isFullscreen)}
-            className="p-1.5 rounded hover:bg-white/5 active:scale-90"
-          >
-            {isFullscreen ? (
-              <Minimize2 size={13} className="text-steel-400" />
-            ) : (
-              <Maximize2 size={13} className="text-steel-400" />
-            )}
+          <button onClick={() => setIsFullscreen(!isFullscreen)} className="p-1.5 rounded hover:bg-white/5 active:scale-90">
+            {isFullscreen ? <Minimize2 size={13} className="text-steel-400" /> : <Maximize2 size={13} className="text-steel-400" />}
           </button>
         </div>
       </div>
 
-      {/* ── Error bar ── */}
+      {/* Error bar */}
       {error && (
-        <div className="px-3 py-1.5 bg-neon-pink/5 border-b border-neon-pink/15">
+        <div className="px-3 py-1.5 bg-neon-pink/5 border-b border-neon-pink/15 shrink-0">
           <p className="text-[10px] font-mono text-neon-pink/80 truncate">{error}</p>
         </div>
       )}
 
-      {/* ── Content ── */}
-      <div className="flex-1 h-[calc(100%-44px)] overflow-hidden flex items-center justify-center bg-[#111118]">
+      {/* Content */}
+      <div className="flex-1 min-h-0 flex items-stretch justify-center bg-[#111118] overflow-hidden">
         {viewMode === 'preview' ? (
-          <div
-            className={`h-full transition-all duration-300 ${
-              deviceFrame === 'mobile'
-                ? 'w-[390px] max-w-full border-x border-white/5'
-                : 'w-full'
-            }`}
-          >
-            <iframe
-              ref={iframeRef}
-              key={key}
-              src={blobUrl.current}
-              sandbox="allow-scripts allow-modals allow-forms allow-popups"
-              className="w-full h-full bg-white border-0"
-              title="HTML Preview"
-            />
+          <div className={`flex-1 transition-all duration-300 ${
+            deviceFrame === 'mobile' ? 'max-w-[430px] border-x border-white/5' : 'w-full'
+          }`}>
+            {blobUrl ? (
+              <iframe
+                key={`${refreshKey}-${blobUrl}`}
+                src={blobUrl}
+                sandbox="allow-scripts allow-modals allow-forms allow-popups allow-same-origin"
+                className="w-full h-full bg-white border-0"
+                title="HTML Preview"
+                allow="accelerometer; camera; encrypted-media; geolocation; gyroscope"
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-steel-500 text-xs font-mono">Loading preview...</p>
+              </div>
+            )}
           </div>
         ) : (
           <div className="w-full h-full overflow-auto p-4">
-            <pre className="text-[12px] font-mono text-steel-200 leading-[1.65] whitespace-pre-wrap">
+            <pre className="text-[12px] font-mono text-steel-200 leading-[1.65] whitespace-pre-wrap break-words">
               {html}
             </pre>
           </div>

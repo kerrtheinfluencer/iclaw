@@ -53,8 +53,14 @@ export default function CodeBlock({
   const [injectPath, setInjectPath] = useState(filename || '');
   const [injected, setInjected] = useState(false);
 
-  const isPreviewable = ['html', 'xml', 'svg'].includes(language) &&
-    (code.includes('<html') || code.includes('<!DOCTYPE') || code.includes('<body') || code.includes('<svg'));
+  // Previewable: HTML/SVG language tag OR code that looks like HTML
+  const lang = (language || '').toLowerCase();
+  const isHtmlLike = ['html', 'xml', 'svg'].includes(lang);
+  const looksLikeHtml = code.includes('<html') || code.includes('<!DOCTYPE') ||
+    code.includes('<!doctype') || code.includes('<body') ||
+    code.includes('<svg') || code.includes('<div') ||
+    (code.includes('<') && code.includes('</') && code.includes('>'));
+  const isPreviewable = isHtmlLike || (lang === 'plaintext' && looksLikeHtml);
 
   useEffect(() => {
     if (codeRef.current) {
@@ -85,6 +91,25 @@ export default function CodeBlock({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handlePreview = () => {
+    // Wrap bare HTML fragments in a full document if needed
+    let html = code;
+    if (!html.includes('<html') && !html.includes('<!DOCTYPE') && !html.includes('<!doctype')) {
+      html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>${filename || 'Preview'}</title>
+</head>
+<body>
+${html}
+</body>
+</html>`;
+    }
+    onPreview?.(html, filename || 'preview.html');
+  };
+
   const handleInject = async () => {
     if (!injectPath.trim()) return;
     const success = await onInject?.(injectPath.trim(), code);
@@ -112,10 +137,10 @@ export default function CodeBlock({
         </div>
 
         <div className="flex items-center gap-0.5">
-          {/* Preview button (HTML only) */}
+          {/* Preview button */}
           {isPreviewable && (
             <button
-              onClick={() => onPreview?.(code, filename || 'preview.html')}
+              onClick={handlePreview}
               className="p-1.5 rounded hover:bg-neon-green/10 active:scale-90 transition-all"
               title="Preview HTML"
             >
