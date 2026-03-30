@@ -15,10 +15,10 @@ const PROVIDERS = {
     tagColor: 'text-blue-400 bg-blue-400/10',
     keyUrl: 'https://aistudio.google.com/apikey',
     keyPlaceholder: 'AIza...',
-    limits: 'Free: 1500 req/day · No credit card',
+    limits: '🌐 Always-on Google Search · 1500 req/day free',
     models: [
-      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'Fast' },
-      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'Best' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: '⚡ Default · Internet' },
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: '🧠 Most Powerful' },
     ],
   },
   groq: {

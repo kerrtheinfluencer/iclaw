@@ -2,11 +2,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Cpu, Wifi, WifiOff, Settings, ChevronDown, Check } from 'lucide-react';
 
 const engineMeta = {
-  gemini: {
+  gemini: { // Always-on Google Search
     icon: '✦', label: 'Gemini', color: 'text-blue-400', border: 'border-blue-400/30',
     models: [
-      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'Fast' },
-      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'Best' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: '⚡ Default · Internet' },
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: '🧠 Most Powerful' },
     ],
   },
   groq: {
