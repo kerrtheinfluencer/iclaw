@@ -7,12 +7,16 @@ import HtmlPreview from './components/HtmlPreview.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
 import { useLLM } from './hooks/useLLM.js';
 import { useWorkspace } from './hooks/useWorkspace.js';
+import { useAgent } from './hooks/useAgent.js';
+import AgentPanel from './components/AgentPanel.jsx';
 import { uid } from './utils/codeParser.js';
 import { saveChat, getSetting } from './utils/db.js';
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
+  const [agentApiKey, setAgentApiKey] = useState('');
   const [messages, setMessages] = useState([]);
   const [chatId, setChatId] = useState(() => uid());
   const [editingFile, setEditingFile] = useState(null);
@@ -24,6 +28,7 @@ export default function App() {
 
   const llm = useLLM();
   const workspace = useWorkspace();
+  const agent = useAgent();
 
   // Auto-restore saved keys — triggered once worker reports idle status
   useEffect(() => {
@@ -35,6 +40,7 @@ export default function App() {
         const key = await getSetting(`key_${p}`, '');
         if (key) {
           llm.setKey(p, key);
+          if (p === 'gemini') setAgentApiKey(key);
           break;
         }
       }
@@ -142,6 +148,7 @@ export default function App() {
           projectOpen={workspace.isOpen} projectName={workspace.projectName}
           onOpenProject={workspace.openProject} fsSupported={workspace.fsSupported}
           onOpenSettings={() => setSettingsOpen(true)}
+          onOpenAgent={() => setAgentOpen(true)}
           webSearchOn={llm.webSearchOn} isSearching={llm.isSearching}
           onToggleSearch={llm.toggleSearch} />
       </main>
@@ -151,9 +158,18 @@ export default function App() {
       {previewHtml && <HtmlPreview html={previewHtml} title={previewTitle}
         onClose={() => setPreviewHtml(null)} />}
       <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}
-        onSelectEngine={llm.initModel} onSetKey={llm.setKey}
+        onSelectEngine={llm.initModel} onSetKey={(p, k) => { llm.setKey(p, k); if (p === 'gemini') setAgentApiKey(k); }}
         activeEngine={llm.activeEngine} llmStatus={llm.status}
         activeModel={llm.activeModel} onSelectModel={llm.selectModel} />
+      <AgentPanel
+        isOpen={agentOpen} onClose={() => setAgentOpen(false)}
+        isRunning={agent.isRunning} steps={agent.steps} files={agent.files}
+        onRun={(task) => agent.runAgent(task, agentApiKey, llm.activeModel || 'gemini-2.5-flash', handleInject, handlePreview)}
+        onStop={agent.stopAgent} onClear={agent.clearAgent}
+        apiKey={agentApiKey} activeModel={llm.activeModel}
+        onPreviewFile={handlePreview}
+      />
     </div>
   );
 }
+// Agent panel appended via patch
