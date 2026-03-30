@@ -94,7 +94,12 @@ export default function App() {
   const handleLoadChat = useCallback((chat) => {
     setChatId(chat.id);
     setMessages(chat.messages || []);
-  }, []);
+    // Ensure engine is active after load
+    if (llm.status === 'idle' || llm.status === 'needsKey') {
+      // try to restore key
+      getSetting('key_gemini', '').then(k => { if (k) { llm.setKey('gemini', k); setAgentApiKey(k); } });
+    }
+  }, [llm]);
 
   const handleInject = useCallback(async (path, code) => {
     if (!workspace.isOpen) return false;
@@ -130,7 +135,8 @@ export default function App() {
         activeEngine={llm.activeEngine} activeModel={llm.activeModel}
         onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
         onSettingsOpen={() => setSettingsOpen(true)}
-        onSelectModel={llm.selectModel} />
+        onSelectModel={llm.selectModel}
+        onOpenAgent={() => setAgentOpen(true)} />
 
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)}
         tree={workspace.tree} projectName={workspace.projectName}
