@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Send, Loader2, Sparkles, FolderOpen,
-  RotateCcw, Cpu, Settings, Paperclip, X, FileText, Globe, Search,
+  RotateCcw, Cpu, Settings, Paperclip, X, FileText, Globe, Search, Zap,
 } from 'lucide-react';
 import ChatMessage from './ChatMessage.jsx';
 
@@ -10,7 +10,7 @@ export default function ChatView({
   onInitModel, onResetChat, onInject, onPreview,
   projectOpen, projectName, onOpenProject, fsSupported,
   statusMessage, activeEngine, onOpenSettings,
-  webSearchOn, isSearching, onToggleSearch,
+  webSearchOn, isSearching, onToggleSearch, onOpenAgent,
 }) {
   const [input, setInput] = useState('');
   const [streamingText, setStreamingText] = useState('');
@@ -125,6 +125,14 @@ export default function ChatView({
                     </div>
                   </button>
                 ))}
+                <button onClick={onOpenAgent}
+                  className="w-full flex items-center gap-3 p-3 rounded-xl border border-neon-amber/20 bg-white/[0.01] hover:bg-white/[0.03] transition-all active:scale-[0.98]">
+                  <Zap size={20} className="text-neon-amber" />
+                  <div className="text-left">
+                    <span className="text-sm font-medium text-steel-200">Agent Mode</span>
+                    <p className="text-[10px] text-steel-500">Auto-build apps step by step</p>
+                  </div>
+                </button>
                 <button onClick={() => onInitModel('wasm')}
                   className="w-full flex items-center gap-3 p-3 rounded-xl border border-neon-green/20 bg-white/[0.01] hover:bg-white/[0.03] transition-all active:scale-[0.98]">
                   <Cpu size={20} className="text-neon-green" />
