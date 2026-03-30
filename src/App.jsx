@@ -9,6 +9,8 @@ import { useLLM } from './hooks/useLLM.js';
 import { useWorkspace } from './hooks/useWorkspace.js';
 import { useAgent } from './hooks/useAgent.js';
 import AgentPanel from './components/AgentPanel.jsx';
+import { useMultiAgent } from './hooks/useMultiAgent.js';
+import MultiAgentPanel from './components/MultiAgentPanel.jsx';
 import { uid } from './utils/codeParser.js';
 import { saveChat, getSetting } from './utils/db.js';
 
@@ -16,6 +18,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
+  const [multiAgentOpen, setMultiAgentOpen] = useState(false);
   const [agentApiKey, setAgentApiKey] = useState('');
   const [messages, setMessages] = useState([]);
   const [chatId, setChatId] = useState(() => uid());
@@ -29,6 +32,7 @@ export default function App() {
   const llm = useLLM();
   const workspace = useWorkspace();
   const agent = useAgent();
+  const multiAgent = useMultiAgent();
 
   // Auto-restore saved keys — triggered once worker reports idle status
   useEffect(() => {
@@ -136,7 +140,8 @@ export default function App() {
         onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
         onSettingsOpen={() => setSettingsOpen(true)}
         onSelectModel={llm.selectModel}
-        onOpenAgent={() => setAgentOpen(true)} />
+        onOpenAgent={() => setAgentOpen(true)}
+        onOpenMultiAgent={() => setMultiAgentOpen(true)} />
 
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)}
         tree={workspace.tree} projectName={workspace.projectName}
@@ -167,6 +172,14 @@ export default function App() {
         onSelectEngine={llm.initModel} onSetKey={(p, k) => { llm.setKey(p, k); if (p === 'gemini') setAgentApiKey(k); }}
         activeEngine={llm.activeEngine} llmStatus={llm.status}
         activeModel={llm.activeModel} onSelectModel={llm.selectModel} />
+      <MultiAgentPanel
+        isOpen={multiAgentOpen} onClose={() => setMultiAgentOpen(false)}
+        isRunning={multiAgent.isRunning} agents={multiAgent.agents}
+        files={multiAgent.files} activeAgent={multiAgent.activeAgent}
+        onRun={(task) => multiAgent.runMultiAgent(task, agentApiKey, llm.activeModel || 'gemini-2.5-flash', handleInject, handlePreview)}
+        onStop={multiAgent.stopMultiAgent} onClear={multiAgent.clearMultiAgent}
+        apiKey={agentApiKey} onPreviewFile={handlePreview}
+      />
       <AgentPanel
         isOpen={agentOpen} onClose={() => setAgentOpen(false)}
         isRunning={agent.isRunning} steps={agent.steps} files={agent.files}
