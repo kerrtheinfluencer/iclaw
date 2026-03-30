@@ -15,8 +15,8 @@ const PROVIDERS = {
     name: 'Google Gemini',
     defaultModel: 'gemini-2.5-flash',
     models: [
-      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: '⚡ Default · Internet' },
-      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: '🧠 Most Powerful' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'Default + Internet' },
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'Most Powerful' },
     ],
   }, {
     name: 'Groq',
