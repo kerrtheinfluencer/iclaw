@@ -16,13 +16,11 @@ export function useLLM() {
 
   useEffect(() => {
     workerRef.current = new Worker(
-      new URL('../workers/llm.worker.js', import.meta.url),
+      new URL('../workers/llm_worker.js', import.meta.url),
       { type: 'module' }
     );
-
     workerRef.current.onmessage = (e) => {
       const { type, ...payload } = e.data;
-
       switch (type) {
         case 'status':
           if (payload.status === 'needsKey') {
@@ -66,7 +64,6 @@ export function useLLM() {
           break;
       }
     };
-
     return () => workerRef.current?.terminate();
   }, []);
 
