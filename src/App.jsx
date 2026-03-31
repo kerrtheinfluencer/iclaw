@@ -20,6 +20,7 @@ export default function App() {
   const [agentOpen, setAgentOpen] = useState(false);
   const [multiAgentOpen, setMultiAgentOpen] = useState(false);
   const [agentApiKey, setAgentApiKey] = useState('');
+  const [agentKeys, setAgentKeys] = useState({});
   const [messages, setMessages] = useState([]);
   const [chatId, setChatId] = useState(() => uid());
   const [editingFile, setEditingFile] = useState(null);
@@ -44,7 +45,8 @@ export default function App() {
         const key = await getSetting(`key_${p}`, '');
         if (key) {
           llm.setKey(p, key);
-          if (p === 'gemini') setAgentApiKey(key);
+          setAgentApiKey(key);
+          setAgentKeys(prev => ({...prev, [p]: key}));
           break;
         }
       }
@@ -169,23 +171,23 @@ export default function App() {
       {previewHtml && <HtmlPreview html={previewHtml} title={previewTitle}
         onClose={() => setPreviewHtml(null)} />}
       <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}
-        onSelectEngine={llm.initModel} onSetKey={(p, k) => { llm.setKey(p, k); if (p === 'gemini') setAgentApiKey(k); }}
+        onSelectEngine={llm.initModel} onSetKey={(p, k) => { llm.setKey(p, k); setAgentKeys(prev => ({...prev, [p]: k})); setAgentApiKey(k); }}
         activeEngine={llm.activeEngine} llmStatus={llm.status}
         activeModel={llm.activeModel} onSelectModel={llm.selectModel} />
       <MultiAgentPanel
         isOpen={multiAgentOpen} onClose={() => setMultiAgentOpen(false)}
         isRunning={multiAgent.isRunning} agents={multiAgent.agents}
         files={multiAgent.files} activeAgent={multiAgent.activeAgent}
-        onRun={(task) => multiAgent.runMultiAgent(task, agentApiKey, llm.activeModel || 'gemini-2.5-flash', handleInject, handlePreview)}
+        onRun={(task) => { const eng = llm.activeEngine || 'gemini'; const key = agentKeys[eng] || agentApiKey; multiAgent.runMultiAgent(task, key, eng, llm.activeModel || 'gemini-2.5-flash', handleInject, handlePreview); }}
         onStop={multiAgent.stopMultiAgent} onClear={multiAgent.clearMultiAgent}
-        apiKey={agentApiKey} onPreviewFile={handlePreview}
+        apiKey={agentKeys[llm.activeEngine] || agentApiKey} onPreviewFile={handlePreview}
       />
       <AgentPanel
         isOpen={agentOpen} onClose={() => setAgentOpen(false)}
         isRunning={agent.isRunning} steps={agent.steps} files={agent.files}
-        onRun={(task) => agent.runAgent(task, agentApiKey, llm.activeModel || 'gemini-2.5-flash', handleInject, handlePreview)}
+        onRun={(task) => { const eng = llm.activeEngine || 'gemini'; const key = agentKeys[eng] || agentApiKey; agent.runAgent(task, key, eng, llm.activeModel || 'gemini-2.5-flash', handleInject, handlePreview); }}
         onStop={agent.stopAgent} onClear={agent.clearAgent}
-        apiKey={agentApiKey} activeModel={llm.activeModel}
+        apiKey={agentKeys[llm.activeEngine] || agentApiKey} activeModel={llm.activeModel}
         onPreviewFile={handlePreview}
       />
     </div>
