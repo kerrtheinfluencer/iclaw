@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { getSetting, setSetting } from '../utils/db.js';
-import { trackRequest } from '../utils/requestQueue.js';
 
 const SYSTEM_PROMPT = `You are a helpful coding assistant. When creating web projects:
 
@@ -88,7 +87,6 @@ export function useLLM() {
   const generate = useCallback(async (messages, ragContext = [], onStream, onDone, attachments = []) => {
     if (!activeEngine) { onDone?.(null, null, 'No engine selected'); return; }
     
-    trackRequest(activeEngine, activeModel);
     setStatus('generating');
     streamCallbackRef.current = onStream;
     doneCallbackRef.current = onDone;
