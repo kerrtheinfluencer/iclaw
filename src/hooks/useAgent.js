@@ -1,4 +1,5 @@
 import { getSetting } from '../utils/db.js';
+import { callProviderQueued, delay } from '../utils/requestQueue.js';
 /**
  * iclaw Agent — Browser-side agentic loop
  * Tools: write_file, read_file, web_search, run_code, finish
@@ -363,10 +364,15 @@ Max ${MAX_STEPS} steps. Be efficient but never sacrifice quality.`;
       stepCount++;
 
       try {
-        // Call active provider
-        const rawText = await callProvider(apiKey, engine, model, AGENT_SYSTEM, messages);
-        if (rawText.startsWith('__ERROR__')) {
-          addStep({ type: 'error', status: 'error', label: rawText.replace('__ERROR__',''), detail: '' });
+        // Call active provider via queue with backoff
+        let rawText;
+        try {
+          rawText = await callProviderQueued(
+            apiKey, engine, model, AGENT_SYSTEM, messages, 0.2,
+            (retryMsg) => updateLastStep({ status: 'retrying', label: retryMsg })
+          );
+        } catch(fetchErr) {
+          addStep({ type: 'error', status: 'error', label: `API error: ${fetchErr.message.slice(0,80)}`, detail: fetchErr.message });
           break;
         }
 
