@@ -61,7 +61,6 @@ export default function ChatView({
 
   return (
     <div className="h-full flex flex-col bg-[#0a0a0f]">
-      {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-8">
@@ -119,7 +118,6 @@ export default function ChatView({
         )}
       </div>
 
-      {/* Input area */}
       <div className="border-t border-[#333] p-4 bg-[#0f0f16]">
         {isError && (
           <div className="mb-2 text-red-400 text-sm flex items-center gap-2">
