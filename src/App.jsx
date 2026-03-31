@@ -27,8 +27,7 @@ export default function App() {
   const [chatId, setChatId] = useState(() => uid());
   const [editingFile, setEditingFile] = useState(null);
   const [editingContent, setEditingContent] = useState('');
-  const [previewHtml, setPreviewHtml] = useState(null);
-  const [previewTitle, setPreviewTitle] = useState('');
+  const [previewFiles, setPreviewFiles] = useState(null);
   const touchStartX = useRef(0);
   const keyRestoredRef = useRef(false);
 
@@ -113,9 +112,9 @@ export default function App() {
     return ok;
   }, [workspace]);
 
-  const handlePreview = useCallback((html, title) => { 
-    setPreviewHtml(html); 
-    setPreviewTitle(title || 'Preview'); 
+  // Handle preview for multiple files
+  const handlePreview = useCallback((files) => {
+    setPreviewFiles(files);
   }, []);
 
   const handleNewChat = useCallback(() => {
@@ -196,11 +195,10 @@ export default function App() {
         />
       )}
       
-      {previewHtml && (
+      {previewFiles && (
         <HtmlPreview 
-          html={previewHtml} 
-          title={previewTitle}
-          onClose={() => setPreviewHtml(null)} 
+          files={previewFiles}
+          onClose={() => setPreviewFiles(null)} 
         />
       )}
 
