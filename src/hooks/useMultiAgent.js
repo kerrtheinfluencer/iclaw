@@ -357,7 +357,7 @@ Your output is the final shipped product. Make it exceptional.`;
     apiKey = resolvedKey;
     engine = resolvedEngine;
     // Fix model for engine
-    const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free' };
+    const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'qwen-qwq-32b', openrouter: 'mistralai/mistral-7b-instruct:free' };
     if (!model || model === 'gemini-2.5-flash' && engine !== 'gemini') {
       model = defaultModels[engine];
     }

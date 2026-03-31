@@ -155,6 +155,55 @@ async function callProvider(apiKey, engine, model, systemPrompt, messages) {
   } catch(e) { return `__ERROR__${e.message}`; }
 }
 
+
+// Wrap JS code in a runnable HTML document for preview
+function wrapJsForPreview(code, filename) {
+  const CDN_MAP = {
+    'THREE': 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+    'gsap': 'https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js',
+    'anime': 'https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js',
+    'Chart': 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
+    'd3.': 'https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js',
+    'Matter': 'https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js',
+    'PIXI': 'https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js',
+    'p5': 'https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js',
+  };
+  const scripts = Object.entries(CDN_MAP)
+    .filter(([token]) => code.includes(token))
+    .map(([, url]) => `<script src="${url}"></script>`)
+    .join('\n');
+  const needsCanvas = code.includes('canvas') || code.includes('THREE') || code.includes('PIXI') || code.includes('getContext');
+  const processed = code
+    .replace(/^import\s+.*?from\s+['"][^'"]+['"];?\s*$/gm, '')
+    .replace(/^export\s+default\s+/gm, 'const __default__ = ')
+    .replace(/^export\s+/gm, '');
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>body{margin:0;background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;}canvas{display:block;}</style>
+${scripts}
+</head><body>
+${needsCanvas ? '<canvas id="canvas" style="width:100vw;height:100vh;display:block;"></canvas>' : '<div id="app" style="padding:20px;"></div>'}
+<script>
+const canvas = document.getElementById('canvas');
+if(canvas){canvas.width=window.innerWidth;canvas.height=window.innerHeight;window.addEventListener('resize',()=>{canvas.width=window.innerWidth;canvas.height=window.innerHeight;});}
+try{${processed}}catch(e){document.body.innerHTML='<div style="color:#f87171;padding:20px;font-family:monospace"><h3>Error</h3><pre>'+e.message+'</pre></div>';}
+<\/script></body></html>`;
+}
+
+function wrapCssForPreview(code, filename) {
+  return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<style>body{margin:0;background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;padding:20px;}</style>
+<style>${code}</style>
+</head><body>
+<h1>Heading 1</h1><h2>Heading 2</h2><p>Paragraph text with <a href="#">a link</a>.</p>
+<button class="btn">Button</button><button class="btn btn-primary">Primary</button>
+<div class="card" style="margin:16px 0;padding:16px">Card element</div>
+<div class="container"><div class="row"><div class="col">Col 1</div><div class="col">Col 2</div></div></div>
+</body></html>`;
+}
+
 export function useAgent() {
   const [isRunning, setIsRunning] = useState(false);
   const [steps, setSteps] = useState([]);
@@ -324,9 +373,20 @@ Max ${MAX_STEPS} steps. Be efficient but never sacrifice quality.`;
         // Special handling for write_file — notify parent
         if (tool === 'write_file' && onFileWrite) {
           await onFileWrite(args.path, args.content);
-          // Auto-preview HTML files
-          if (args.path.endsWith('.html') && onPreview) {
-            onPreview(args.content, args.path);
+          // Auto-preview HTML, JS, CSS, SVG files
+          if (onPreview) {
+            const p = args.path;
+            const c = args.content;
+            if (p.endsWith('.html') || p.endsWith('.svg')) {
+              onPreview(c, p);
+            } else if (p.endsWith('.js') || p.endsWith('.ts') || p.endsWith('.jsx') || p.endsWith('.tsx')) {
+              // Wrap JS in runnable HTML doc
+              const html = wrapJsForPreview(c, p);
+              onPreview(html, p);
+            } else if (p.endsWith('.css')) {
+              const html = wrapCssForPreview(c, p);
+              onPreview(html, p);
+            }
           }
         }
 
