@@ -1,11 +1,12 @@
 import React, { useEffect, useRef } from 'react';
-import { X, RefreshCw, ExternalLink, Maximize2 } from 'lucide-react';
+import { X, RefreshCw } from 'lucide-react';
 
 export default function HtmlPreview({ html, title, onClose }) {
   const iframeRef = useRef(null);
   const blobUrlRef = useRef(null);
 
   useEffect(() => {
+    // Create blob URL for the HTML content
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     blobUrlRef.current = url;
@@ -14,6 +15,7 @@ export default function HtmlPreview({ html, title, onClose }) {
       iframeRef.current.src = url;
     }
 
+    // Cleanup when component unmounts
     return () => {
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
@@ -24,7 +26,7 @@ export default function HtmlPreview({ html, title, onClose }) {
   const handleRefresh = () => {
     if (iframeRef.current && blobUrlRef.current) {
       iframeRef.current.src = blobUrlRef.current;
-    };
+    }
   };
 
   return (
