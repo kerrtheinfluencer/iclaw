@@ -24,17 +24,19 @@ export default function ChatView({
   const isReady = llmStatus === 'ready' || llmStatus === 'idle';
   const isError = llmStatus === 'error';
 
-  // Extract HTML from message content
   const extractHtmlFromMessage = (content) => {
+    if (!content || typeof content !== 'string') return null;
+    
     const htmlMatch = content.match(/```html\n([\s\S]*?)```/);
-    if (htmlMatch) {
+    if (htmlMatch && htmlMatch[1]) {
       return htmlMatch[1].trim();
     }
-    // Also match if it starts with <!DOCTYPE or <html
+    
     if (content.includes('<!DOCTYPE html>') || content.includes('<html')) {
-      const match = content.match(/(<!DOCTYPE html>[\s\S]*?<\/html>)/);
+      const match = content.match(/(<!DOCTYPE html>[\s\S]*?<\/html>)/i);
       if (match) return match[1].trim();
     }
+    
     return null;
   };
 
@@ -118,7 +120,6 @@ export default function ChatView({
                 }`}>
                   <div className="whitespace-pre-wrap text-sm font-mono">{msg.content}</div>
                   
-                  {/* HTML Preview Button */}
                   {htmlContent && (
                     <div className="mt-3 pt-3 border-t border-[#333]">
                       <button
