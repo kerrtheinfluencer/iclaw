@@ -1,31 +1,79 @@
-import React, { useEffect, useRef } from 'react';
-import { X, RefreshCw } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { X, RefreshCw, AlertCircle } from 'lucide-react';
 
 export default function HtmlPreview({ html, title, onClose }) {
   const iframeRef = useRef(null);
-  const blobUrlRef = useRef(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Create blob URL for the HTML content
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    blobUrlRef.current = url;
+    setLoading(true);
+    setError(null);
 
-    if (iframeRef.current) {
-      iframeRef.current.src = url;
+    if (!html || typeof html !== 'string') {
+      setError('No HTML content provided');
+      setLoading(false);
+      return;
     }
 
-    // Cleanup when component unmounts
-    return () => {
-      if (blobUrlRef.current) {
-        URL.revokeObjectURL(blobUrlRef.current);
+    // Ensure we have complete HTML document
+    let fullHtml = html;
+    
+    // If it's not a complete document, wrap it
+    if (!html.includes('<!DOCTYPE') && !html.includes('<html')) {
+      fullHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title || 'Preview'}</title>
+  <style>
+    body { 
+      margin: 0; 
+      padding: 20px; 
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0a0a0f;
+      color: #e0e0e0;
+    }
+    canvas { display: block; margin: 0 auto; }
+  </style>
+</head>
+<body>
+${html}
+</body>
+</html>`;
+    }
+
+    try {
+      // Create blob and URL
+      const blob = new Blob([fullHtml], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+
+      // Set iframe src
+      if (iframeRef.current) {
+        iframeRef.current.src = url;
+        
+        // Cleanup previous URL after a delay
+        setTimeout(() => {
+          if (url) URL.revokeObjectURL(url);
+        }, 1000);
       }
+
+      setLoading(false);
+    } catch (err) {
+      setError('Failed to create preview: ' + err.message);
+      setLoading(false);
+    }
+
+    // Cleanup
+    return () => {
+      setLoading(false);
     };
-  }, [html]);
+  }, [html, title]);
 
   const handleRefresh = () => {
-    if (iframeRef.current && blobUrlRef.current) {
-      iframeRef.current.src = blobUrlRef.current;
+    if (iframeRef.current) {
+      iframeRef.current.src = iframeRef.current.src;
     }
   };
 
@@ -63,13 +111,28 @@ export default function HtmlPreview({ html, title, onClose }) {
         </div>
       </div>
 
-      {/* Full Screen Preview */}
+      {/* Content Area */}
       <div className="flex-1 relative bg-[#0a0a0f]">
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-[#00ff88] animate-pulse">Loading preview...</div>
+          </div>
+        )}
+        
+        {error && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400">
+            <AlertCircle className="w-12 h-12 mb-4" />
+            <p>{error}</p>
+            <p className="text-sm text-[#666] mt-2">Check console for details</p>
+          </div>
+        )}
+
         <iframe
           ref={iframeRef}
           className="w-full h-full border-0"
-          sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals allow-downloads"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"
           title="HTML Preview"
+          style={{ background: 'white' }}
         />
       </div>
     </div>
