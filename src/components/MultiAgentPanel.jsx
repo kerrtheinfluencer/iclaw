@@ -157,9 +157,11 @@ export default function MultiAgentPanel({
                   safeAgents.reviewer.status === 'done';
   const hasStarted = isRunning || Object.values(safeAgents).some(a => a.steps?.length > 0);
 
-  // Clear task input when panel opens fresh
+  // When panel opens and nothing has started, clear state
   useEffect(() => {
-    if (isOpen && !hasStarted) setTask('');
+    if (isOpen && !hasStarted && !isRunning) {
+      setTask('');
+    }
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -195,8 +197,8 @@ export default function MultiAgentPanel({
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {/* Task input — show when idle */}
-        {!hasStarted && (
+        {/* Task input — show when not started */}
+        {!hasStarted && !isRunning && (
           <div className="px-4 py-4 space-y-4">
             {/* How it works */}
             <div className="grid grid-cols-3 gap-2">
