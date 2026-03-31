@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Play, Square, Trash2, FileCode, Eye, Bot } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Play, Square, Trash2, FileCode, Eye, Bot, ExternalLink } from 'lucide-react';
 
 export default function AgentPanel({ 
   onClose, 
@@ -14,10 +14,37 @@ export default function AgentPanel({
   onPreviewFile
 }) {
   const [task, setTask] = useState('');
+  const [previewFile, setPreviewFile] = useState(null);
+
+  // Auto-preview first HTML file when generated
+  useEffect(() => {
+    const htmlFiles = Object.entries(files).filter(([path]) => path.endsWith('.html'));
+    if (htmlFiles.length > 0 && !previewFile) {
+      const [path, content] = htmlFiles[0];
+      setPreviewFile(path);
+      if (onPreviewFile) {
+        onPreviewFile(content, path);
+      }
+    }
+  }, [files, previewFile, onPreviewFile]);
 
   const handleRun = () => {
     if (!task.trim() || isRunning) return;
+    setPreviewFile(null); // Reset preview for new run
     onRun(task);
+  };
+
+  const handlePreview = (path, content) => {
+    setPreviewFile(path);
+    if (onPreviewFile) onPreviewFile(content, path);
+  };
+
+  const getFileIcon = (filename) => {
+    if (filename.endsWith('.html')) return '🌐';
+    if (filename.endsWith('.js') || filename.endsWith('.jsx')) return '⚡';
+    if (filename.endsWith('.css')) return '🎨';
+    if (filename.endsWith('.json')) return '📋';
+    return '📄';
   };
 
   return (
@@ -27,6 +54,7 @@ export default function AgentPanel({
           <div className="flex items-center gap-2">
             <Bot className="w-5 h-5 text-[#00ff88]" />
             <h2 className="text-lg font-bold text-[#e0e0e0]">Agent Mode</h2>
+            <span className="text-xs text-[#666] bg-[#1a1a24] px-2 py-0.5 rounded">Auto-build</span>
           </div>
           <button onClick={onClose} className="p-1 hover:bg-[#333] rounded">
             <X className="w-5 h-5 text-[#666]" />
@@ -41,12 +69,12 @@ export default function AgentPanel({
           )}
 
           <div className="space-y-2">
-            <label className="text-sm text-[#888]">Task Description</label>
+            <label className="text-sm text-[#888]">What do you want to build?</label>
             <textarea
               value={task}
               onChange={(e) => setTask(e.target.value)}
-              placeholder="Describe what you want the agent to build..."
-              className="w-full h-24 bg-[#1a1a24] border border-[#333] rounded-lg p-3 text-sm text-[#e0e0e0] placeholder-[#666] focus:outline-none focus:border-[#00ff88] resize-none"
+              placeholder="e.g., Create a 3D bouncing ball animation with Three.js in a single HTML file..."
+              className="w-full h-28 bg-[#1a1a24] border border-[#333] rounded-lg p-3 text-sm text-[#e0e0e0] placeholder-[#666] focus:outline-none focus:border-[#00ff88] resize-none"
               disabled={isRunning}
             />
           </div>
@@ -71,7 +99,7 @@ export default function AgentPanel({
               </button>
             )}
             <button
-              onClick={onClear}
+              onClick={() => { onClear(); setPreviewFile(null); }}
               className="flex items-center gap-2 px-4 py-2 bg-[#1a1a24] text-[#666] border border-[#333] rounded-lg hover:bg-[#222]"
             >
               <Trash2 className="w-4 h-4" />
@@ -81,10 +109,13 @@ export default function AgentPanel({
 
           {steps.length > 0 && (
             <div className="space-y-2">
-              <h3 className="text-sm font-medium text-[#888]">Progress</h3>
+              <h3 className="text-sm font-medium text-[#888] flex items-center gap-2">
+                <span>Progress</span>
+                {isRunning && <span className="w-2 h-2 bg-[#00ff88] rounded-full animate-pulse" />}
+              </h3>
               <div className="space-y-2">
                 {steps.map((step, i) => (
-                  <div key={step.id || i} className="flex items-start gap-3 p-3 bg-[#1a1a24] rounded-lg">
+                  <div key={step.id || i} className="flex items-start gap-3 p-3 bg-[#1a1a24] rounded-lg border border-[#333]">
                     <div className={`w-2 h-2 mt-1.5 rounded-full ${
                       step.status === 'running' ? 'bg-yellow-500 animate-pulse' :
                       step.status === 'done' ? 'bg-green-500' :
@@ -93,7 +124,7 @@ export default function AgentPanel({
                     <div className="flex-1">
                       <div className="text-sm text-[#e0e0e0]">{step.label}</div>
                       {step.detail && (
-                        <div className="text-xs text-[#666] mt-1">{step.detail}</div>
+                        <div className="text-xs text-[#666] mt-1 line-clamp-2">{step.detail}</div>
                       )}
                     </div>
                   </div>
@@ -107,18 +138,39 @@ export default function AgentPanel({
               <h3 className="text-sm font-medium text-[#888]">Generated Files</h3>
               <div className="grid grid-cols-1 gap-2">
                 {Object.entries(files).map(([path, content]) => (
-                  <div key={path} className="flex items-center justify-between p-3 bg-[#1a1a24] rounded-lg border border-[#333]">
+                  <div 
+                    key={path} 
+                    className={`flex items-center justify-between p-3 rounded-lg border ${
+                      previewFile === path ? 'border-[#00ff88] bg-[#00ff88]/10' : 'border-[#333] bg-[#1a1a24]'
+                    }`}
+                  >
                     <div className="flex items-center gap-2">
-                      <FileCode className="w-4 h-4 text-[#00ff88]" />
-                      <span className="text-sm text-[#e0e0e0]">{path}</span>
+                      <span className="text-lg">{getFileIcon(path)}</span>
+                      <div>
+                        <span className="text-sm text-[#e0e0e0] font-mono">{path}</span>
+                        {path.endsWith('.html') && (
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 bg-[#00ff88]/20 text-[#00ff88] rounded">Preview Ready</span>
+                        )}
+                      </div>
                     </div>
-                    <button
-                      onClick={() => onPreviewFile?.(content, path)}
-                      className="p-1.5 hover:bg-[#00ff88]/10 rounded text-[#00ff88]"
-                      title="Preview"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
+                    <div className="flex gap-1">
+                      {path.endsWith('.html') && (
+                        <button
+                          onClick={() => handlePreview(path, content)}
+                          className="p-1.5 hover:bg-[#00ff88]/20 rounded text-[#00ff88]"
+                          title="Open Preview"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handlePreview(path, content)}
+                        className="p-1.5 hover:bg-[#333] rounded text-[#666]"
+                        title="View Code"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
