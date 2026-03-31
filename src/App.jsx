@@ -5,13 +5,13 @@ import ChatView from './components/ChatView.jsx';
 import CodeEditor from './components/CodeEditor.jsx';
 import HtmlPreview from './components/HtmlPreview.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
+import AgentPanel from './components/AgentPanel.jsx';
+import MultiAgentPanel from './components/MultiAgentPanel.jsx';
+import RateLimitMonitor from './components/RateLimitMonitor.jsx';
 import { useLLM } from './hooks/useLLM.js';
 import { useWorkspace } from './hooks/useWorkspace.js';
 import { useAgent } from './hooks/useAgent.js';
-import AgentPanel from './components/AgentPanel.jsx';
 import { useMultiAgent } from './hooks/useMultiAgent.js';
-import RateLimitMonitor from './components/RateLimitMonitor.jsx';
-import MultiAgentPanel from './components/MultiAgentPanel.jsx';
 import { uid } from './utils/codeParser.js';
 import { saveChat, getSetting } from './utils/db.js';
 
@@ -37,7 +37,7 @@ export default function App() {
   const agent = useAgent();
   const multiAgent = useMultiAgent();
 
-  // Auto-restore saved keys — triggered once worker reports idle status
+  // Auto-restore saved keys
   useEffect(() => {
     if (keyRestoredRef.current) return;
     if (llm.status !== 'idle' && llm.status !== 'needsKey') return;
@@ -65,10 +65,12 @@ export default function App() {
     };
     document.addEventListener('touchstart', onStart, { passive: true });
     document.addEventListener('touchend', onEnd, { passive: true });
-    return () => { document.removeEventListener('touchstart', onStart); document.removeEventListener('touchend', onEnd); };
+    return () => { 
+      document.removeEventListener('touchstart', onStart); 
+      document.removeEventListener('touchend', onEnd); 
+    };
   }, [sidebarOpen]);
 
-  // Send message with optional attachments
   const handleSend = useCallback(async (text, streamRef, attachments = []) => {
     const userMsg = { id: uid(), role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
@@ -98,13 +100,10 @@ export default function App() {
     );
   }, [messages, llm, workspace, chatId]);
 
-  // Load a saved chat
   const handleLoadChat = useCallback((chat) => {
     setChatId(chat.id);
     setMessages(chat.messages || []);
-    // Ensure engine is active after load
     if (llm.status === 'idle' || llm.status === 'needsKey') {
-      // try to restore key
       getSetting('key_gemini', '').then(k => { if (k) { llm.setKey('gemini', k); setAgentApiKey(k); } });
     }
   }, [llm]);
@@ -116,7 +115,10 @@ export default function App() {
     return ok;
   }, [workspace]);
 
-  const handlePreview = useCallback((html, title) => { setPreviewHtml(html); setPreviewTitle(title); }, []);
+  const handlePreview = useCallback((html, title) => { 
+    setPreviewHtml(html); 
+    setPreviewTitle(title); 
+  }, []);
 
   const handleNewChat = useCallback(() => {
     setMessages([]);
@@ -138,78 +140,145 @@ export default function App() {
   }, [workspace]);
 
   return (
-    <div className="h-screen h-[100dvh] flex flex-col bg-void-950 text-steel-100 overflow-hidden scan-overlay hex-bg">
-      <Header llmStatus={llm.status} projectName={workspace.projectName}
-        activeEngine={llm.activeEngine} activeModel={llm.activeModel}
+    <div className="min-h-screen bg-[#0a0a0f] text-[#e0e0e0] overflow-hidden">
+      <Header 
         onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
         onSettingsOpen={() => setSettingsOpen(true)}
         onSelectModel={llm.selectModel}
         onOpenAgent={() => setAgentOpen(true)}
         onOpenMultiAgent={() => setMultiAgentOpen(true)}
-        onOpenRateLimit={() => setRateLimitOpen(true)} />
-
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)}
-        tree={workspace.tree} projectName={workspace.projectName}
+        onOpenRateLimit={() => setRateLimitOpen(true)}
+        llmStatus={llm.status}
+        activeEngine={llm.activeEngine}
+        activeModel={llm.activeModel}
+      />
+      
+      <Sidebar 
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        tree={workspace.tree} 
+        projectName={workspace.projectName}
         onOpenProject={async () => { await workspace.openProject(); setSidebarOpen(false); }}
-        onFileSelect={handleFileSelect} onNewChat={handleNewChat} onLoadChat={handleLoadChat}
-        indexStats={workspace.indexStats} isIndexing={workspace.isIndexing}
-        onReindex={workspace.reindex} hasGit={workspace.hasGit} fsSupported={workspace.fsSupported} />
+        onFileSelect={handleFileSelect} 
+        onNewChat={handleNewChat} 
+        onLoadChat={handleLoadChat}
+        indexStats={workspace.indexStats} 
+        isIndexing={workspace.isIndexing}
+        onReindex={workspace.reindex} 
+        hasGit={workspace.hasGit} 
+        fsSupported={workspace.fsSupported}
+        messages={messages}
+        chatId={chatId}
+      />
 
-      <main className="flex-1 min-h-0 relative">
-        <ChatView messages={messages} onSend={handleSend}
-          llmStatus={llm.status} loadProgress={llm.loadProgress} loadText={llm.loadText}
-          statusMessage={llm.statusMessage} activeEngine={llm.activeEngine}
-          onInitModel={llm.initModel} onResetChat={handleNewChat}
-          onInject={handleInject} onPreview={handlePreview}
-          projectOpen={workspace.isOpen} projectName={workspace.projectName}
-          onOpenProject={workspace.openProject} fsSupported={workspace.fsSupported}
-          onOpenSettings={() => setSettingsOpen(true)}
+      <main className="h-[calc(100vh-56px)] overflow-hidden">
+        <ChatView 
+          messages={messages}
+          onSend={handleSend}
+          onPreview={handlePreview}
+          llmStatus={llm.status}
+          statusMessage={llm.statusMessage}
+          loadProgress={llm.loadProgress}
+          loadText={llm.loadText}
+          onSettingsOpen={() => setSettingsOpen(true)}
           onOpenAgent={() => setAgentOpen(true)}
-          webSearchOn={llm.webSearchOn} isSearching={llm.isSearching}
-          onToggleSearch={llm.toggleSearch} />
+          webSearchOn={llm.webSearchOn} 
+          isSearching={llm.isSearching}
+          onToggleSearch={llm.toggleSearch}
+          projectOpen={workspace.isOpen}
+        />
       </main>
 
-      {editingFile && <CodeEditor path={editingFile} initialContent={editingContent}
-        onSave={handleEditorSave} onClose={() => setEditingFile(null)} />}
-      {previewHtml && <HtmlPreview html={previewHtml} title={previewTitle}
-        onClose={() => setPreviewHtml(null)} />}
-      <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}
-        onSelectEngine={llm.initModel} onSetKey={(p, k) => { llm.setKey(p, k); setAgentKeys(prev => ({...prev, [p]: k})); setAgentApiKey(k); }}
-        activeEngine={llm.activeEngine} llmStatus={llm.status}
-        activeModel={llm.activeModel} onSelectModel={llm.selectModel} />
-      <RateLimitMonitor
-        isOpen={rateLimitOpen} onClose={() => setRateLimitOpen(false)}
-        activeEngine={llm.activeEngine} activeModel={llm.activeModel}
-      />
-      <MultiAgentPanel
-        isOpen={multiAgentOpen} onClose={() => setMultiAgentOpen(false)}
-        isRunning={multiAgent.isRunning} agents={multiAgent.agents}
-        files={multiAgent.files} activeAgent={multiAgent.activeAgent}
-        onRun={(task) => {
-              const eng = llm.activeEngine || 'gemini';
-              const key = agentKeys[eng] || agentApiKey;
-              const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free' };
-              const model = llm.activeModel || defaultModels[eng] || 'gemini-2.5-flash';
-              multiAgent.runMultiAgent(task, key, eng, model, handleInject, handlePreview);
-            }}
-        onStop={multiAgent.stopMultiAgent} onClear={multiAgent.clearMultiAgent}
-        apiKey={agentKeys[llm.activeEngine] || agentApiKey} onPreviewFile={handlePreview}
-      />
-      <AgentPanel
-        isOpen={agentOpen} onClose={() => setAgentOpen(false)}
-        isRunning={agent.isRunning} steps={agent.steps} files={agent.files}
-        onRun={(task) => {
-              const eng = llm.activeEngine || 'gemini';
-              const key = agentKeys[eng] || agentApiKey;
-              const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free' };
-              const model = llm.activeModel || defaultModels[eng] || 'gemini-2.5-flash';
-              agent.runAgent(task, key, eng, model, handleInject, handlePreview);
-            }}
-        onStop={agent.stopAgent} onClear={agent.clearAgent}
-        apiKey={agentKeys[llm.activeEngine] || agentApiKey} activeModel={llm.activeModel}
-        onPreviewFile={handlePreview}
-      />
+      {editingFile && (
+        <CodeEditor 
+          filePath={editingFile} 
+          content={editingContent}
+          onClose={() => setEditingFile(null)}
+          onSave={handleEditorSave}
+        />
+      )}
+      
+      {previewHtml && (
+        <HtmlPreview 
+          html={previewHtml} 
+          title={previewTitle}
+          onClose={() => setPreviewHtml(null)} 
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsPanel 
+          onClose={() => setSettingsOpen(false)}
+          onSelectEngine={llm.initModel} 
+          onSetKey={(p, k) => { 
+            llm.setKey(p, k); 
+            setAgentKeys(prev => ({...prev, [p]: k})); 
+            setAgentApiKey(k); 
+          }}
+          activeEngine={llm.activeEngine} 
+          llmStatus={llm.status}
+          activeModel={llm.activeModel} 
+          onSelectModel={llm.selectModel}
+        />
+      )}
+
+      {rateLimitOpen && (
+        <RateLimitMonitor 
+          onClose={() => setRateLimitOpen(false)}
+          activeEngine={llm.activeEngine} 
+          activeModel={llm.activeModel}
+        />
+      )}
+
+      {multiAgentOpen && (
+        <MultiAgentPanel 
+          onClose={() => setMultiAgentOpen(false)}
+          isRunning={multiAgent.isRunning} 
+          agents={multiAgent.agents}
+          files={multiAgent.files} 
+          activeAgent={multiAgent.activeAgent}
+          onRun={(task) => {
+            const eng = llm.activeEngine || 'gemini';
+            const key = agentKeys[eng] || agentApiKey;
+            const defaultModels = { 
+              gemini: 'gemini-2.5-flash', 
+              groq: 'llama-3.3-70b-versatile', 
+              openrouter: 'mistralai/mistral-7b-instruct:free' 
+            };
+            const model = llm.activeModel || defaultModels[eng] || 'gemini-2.5-flash';
+            multiAgent.runMultiAgent(task, key, eng, model, handleInject, handlePreview);
+          }}
+          onStop={multiAgent.stopMultiAgent} 
+          onClear={multiAgent.clearMultiAgent}
+          apiKey={agentKeys[llm.activeEngine] || agentApiKey} 
+          onPreviewFile={handlePreview}
+        />
+      )}
+
+      {agentOpen && (
+        <AgentPanel 
+          onClose={() => setAgentOpen(false)}
+          isRunning={agent.isRunning} 
+          steps={agent.steps} 
+          files={agent.files}
+          onRun={(task) => {
+            const eng = llm.activeEngine || 'gemini';
+            const key = agentKeys[eng] || agentApiKey;
+            const defaultModels = { 
+              gemini: 'gemini-2.5-flash', 
+              groq: 'llama-3.3-70b-versatile', 
+              openrouter: 'mistralai/mistral-7b-instruct:free' 
+            };
+            const model = llm.activeModel || defaultModels[eng] || 'gemini-2.5-flash';
+            agent.runAgent(task, key, eng, model, handleInject, handlePreview);
+          }}
+          onStop={agent.stopAgent} 
+          onClear={agent.clearAgent}
+          apiKey={agentKeys[llm.activeEngine] || agentApiKey} 
+          activeModel={llm.activeModel}
+          onPreviewFile={handlePreview}
+        />
+      )}
     </div>
   );
 }
-// Agent panel appended via patch
