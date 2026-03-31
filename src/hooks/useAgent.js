@@ -157,38 +157,68 @@ async function callProvider(apiKey, engine, model, systemPrompt, messages) {
 
 
 // Wrap JS code in a runnable HTML document for preview
+// Scripts are loaded sequentially before code runs — fixes THREE/GSAP/etc not defined errors
 function wrapJsForPreview(code, filename) {
-  const CDN_MAP = {
-    'THREE': 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
-    'gsap': 'https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js',
-    'anime': 'https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js',
-    'Chart': 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
-    'd3.': 'https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js',
+  const LIB_MAP = {
+    'THREE':  'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+    'gsap':   'https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js',
+    'anime':  'https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js',
+    'Chart':  'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
+    'd3':     'https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js',
     'Matter': 'https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js',
-    'PIXI': 'https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js',
-    'p5': 'https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js',
+    'PIXI':   'https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js',
+    'p5':     'https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js',
   };
-  const scripts = Object.entries(CDN_MAP)
+  const urls = Object.entries(LIB_MAP)
     .filter(([token]) => code.includes(token))
-    .map(([, url]) => `<script src="${url}"></script>`)
-    .join('\n');
-  const needsCanvas = code.includes('canvas') || code.includes('THREE') || code.includes('PIXI') || code.includes('getContext');
+    .map(([, url]) => url);
+
+  const needsCanvas = code.includes('canvas') || code.includes('THREE') ||
+                      code.includes('PIXI') || code.includes('getContext') ||
+                      code.includes('renderer') || code.includes('WebGL');
+
   const processed = code
-    .replace(/^import\s+.*?from\s+['"][^'"]+['"];?\s*$/gm, '')
+    .replace(/^import\s+.*?from\s+['"][^'"]+['"];?\s*$/gm, '// (import removed)')
     .replace(/^export\s+default\s+/gm, 'const __default__ = ')
     .replace(/^export\s+/gm, '');
-  return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>body{margin:0;background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;}canvas{display:block;}</style>
-${scripts}
-</head><body>
-${needsCanvas ? '<canvas id="canvas" style="width:100vw;height:100vh;display:block;"></canvas>' : '<div id="app" style="padding:20px;"></div>'}
-<script>
-const canvas = document.getElementById('canvas');
-if(canvas){canvas.width=window.innerWidth;canvas.height=window.innerHeight;window.addEventListener('resize',()=>{canvas.width=window.innerWidth;canvas.height=window.innerHeight;});}
-try{${processed}}catch(e){document.body.innerHTML='<div style="color:#f87171;padding:20px;font-family:monospace"><h3>Error</h3><pre>'+e.message+'</pre></div>';}
-<\/script></body></html>`;
+
+  const urlsJson = JSON.stringify(urls);
+
+  return '<!DOCTYPE html>\n<html><head><meta charset="UTF-8">\n' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+    '<style>*{box-sizing:border-box}body{margin:0;background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;overflow:hidden}canvas{display:block;}</style>\n' +
+    '</head><body>\n' +
+    (needsCanvas ? '<canvas id="canvas" style="width:100vw;height:100vh;display:block;"></canvas>\n' : '<div id="app" style="padding:20px;min-height:100vh;"></div>\n') +
+    '<script>\n' +
+    '// Load CDN scripts sequentially then run code\n' +
+    'var __urls = ' + urlsJson + ';\n' +
+    'var __code = function() {\n' +
+    '  var canvas = document.getElementById("canvas");\n' +
+    '  if (canvas) {\n' +
+    '    canvas.width = window.innerWidth;\n' +
+    '    canvas.height = window.innerHeight;\n' +
+    '    window.addEventListener("resize", function() {\n' +
+    '      canvas.width = window.innerWidth;\n' +
+    '      canvas.height = window.innerHeight;\n' +
+    '    });\n' +
+    '  }\n' +
+    '  try {\n' +
+    '    (function() {\n' + processed + '\n    })();\n' +
+    '  } catch(e) {\n' +
+    '    document.body.innerHTML = "<div style=\"color:#f87171;padding:20px;font-family:monospace\"><h3>Runtime Error</h3><pre>" + e.message + "</pre></div>";\n' +
+    '    parent.postMessage({ type: "previewError", message: e.message, line: 0 }, "*");\n' +
+    '  }\n' +
+    '};\n' +
+    'function __loadNext(i) {\n' +
+    '  if (i >= __urls.length) { __code(); return; }\n' +
+    '  var s = document.createElement("script");\n' +
+    '  s.src = __urls[i];\n' +
+    '  s.onload = function() { __loadNext(i + 1); };\n' +
+    '  s.onerror = function() { console.warn("CDN failed:", __urls[i]); __loadNext(i + 1); };\n' +
+    '  document.head.appendChild(s);\n' +
+    '}\n' +
+    '__loadNext(0);\n' +
+    '<\/script>\n</body></html>';
 }
 
 function wrapCssForPreview(code, filename) {
@@ -348,8 +378,27 @@ Max ${MAX_STEPS} steps. Be efficient but never sacrifice quality.`;
         }
 
         if (!toolCall) {
-          // Model gave a text response, treat as finish
-          addStep({ type: 'finish', status: 'done', label: 'Agent finished', detail: rawText });
+          // Model gave text instead of JSON — retry with stronger instruction
+          if (stepCount < 3) {
+            messages.push({ role: 'assistant', content: rawText });
+            messages.push({ role: 'user', content: 'You must respond with a JSON tool call ONLY. No markdown, no explanation. Format: {"tool":"write_file","args":{"path":"index.html","content":"..."},"thought":"..."}\n\nNow write the code using write_file tool.' });
+            updateLastStep({ status: 'running', label: 'Retrying with tool call...' });
+            continue;
+          }
+          // After retries, try to extract any code from the text response
+          const htmlMatch = rawText.match(/```(?:html)?\n([\s\S]*?)```/);
+          const jsMatch = rawText.match(/```(?:javascript|js)\n([\s\S]*?)```/);
+          if (htmlMatch || jsMatch) {
+            const code = htmlMatch?.[1] || jsMatch?.[1];
+            const path = htmlMatch ? 'index.html' : 'script.js';
+            addStep({ type: 'write_file', status: 'running', label: `Extracting ${path} from response...` });
+            const result = await executeTool('write_file', { path, content: code });
+            updateLastStep({ status: 'done', detail: result });
+            if (onFileWrite) await onFileWrite(path, code);
+            if (path.endsWith('.html') && onPreview) onPreview(code, path);
+            if (path.endsWith('.js') && onPreview) onPreview(wrapJsForPreview(code, path), path);
+          }
+          addStep({ type: 'finish', status: 'done', label: 'Agent finished', detail: rawText.slice(0, 200) });
           messages.push({ role: 'assistant', content: rawText });
           break;
         }
