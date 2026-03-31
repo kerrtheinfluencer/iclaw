@@ -21,11 +21,7 @@ function extractHtml(content) {
 }
 
 const AGENT_SYSTEM_PROMPT = `You are an autonomous coding agent. Create complete, working code.
-When generating HTML/JS projects, provide the complete code in a single HTML file using:
-- Three.js for 3D graphics
-- Canvas API for 2D graphics  
-- CSS animations for effects
-
+When generating HTML/JS projects, provide the complete code in a single HTML file.
 Always wrap HTML code in \`\`\`html blocks.`;
 
 export function useAgent() {
@@ -67,7 +63,6 @@ export function useAgent() {
     setFiles({});
     abortRef.current = false;
 
-    const context = { files: {}, task };
     let stepCount = 0;
 
     try {
@@ -78,7 +73,7 @@ export function useAgent() {
 
         const messages = [
           { role: 'system', content: AGENT_SYSTEM_PROMPT },
-          { role: 'user', content: `Task: ${task}\n\nContext: ${JSON.stringify(context, null, 2)}` }
+          { role: 'user', content: `Task: ${task}` }
         ];
 
         updateLastStep({ status: 'running', label: `Step ${stepCount + 1}: Generating...` });
@@ -97,30 +92,26 @@ export function useAgent() {
         const htmlContent = extractHtml(response);
         if (htmlContent) {
           const filename = 'index.html';
-          context.files[filename] = htmlContent;
           setFiles(prev => ({ ...prev, [filename]: htmlContent }));
           addStep({ type: 'write_file', status: 'done', label: `Created ${filename}` });
           
-          // Trigger preview immediately
+          // Trigger preview immediately - THIS IS THE KEY PART
           if (onPreview) {
             onPreview(htmlContent, filename);
           }
           
-          addStep({ type: 'finish', status: 'done', label: 'Preview ready!' });
-          setIsRunning(false);
-          return;
-        }
-
-        // Check for completion
-        if (response.toLowerCase().includes('finish') || stepCount >= 3) {
-          addStep({ type: 'finish', status: 'done', label: 'Task complete' });
+          addStep({ type: 'finish', status: 'done', label: 'Preview opened!' });
           setIsRunning(false);
           return;
         }
 
         stepCount++;
         await delay(500);
+        
+        if (stepCount >= 3) break;
       }
+
+      addStep({ type: 'finish', status: 'done', label: 'Task complete' });
 
     } catch (err) {
       if (err.message === 'Aborted') {
