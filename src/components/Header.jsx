@@ -115,7 +115,7 @@ export default function Header({
           llmStatus === 'ready' ? 'bg-green-500' : 
           llmStatus === 'generating' ? 'bg-yellow-500 animate-pulse' : 
           llmStatus === 'error' ? 'bg-red-500' : 'bg-gray-500'
-        }`} />
+        }`} title={`Status: ${llmStatus}`} />
 
         <button 
           onClick={onOpenMultiAgent} 
