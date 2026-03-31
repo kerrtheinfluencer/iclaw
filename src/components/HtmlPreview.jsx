@@ -29,8 +29,64 @@ const GLOBAL_TO_CDN = {
   'p5':      'p5',
 };
 
-function processHtml(html) {
-  let out = html;
+// NEW: Inject CSS and JS from files object into HTML
+function injectFilesIntoHtml(html, files) {
+  if (!files || Object.keys(files).length === 0) return html;
+  
+  let processed = html;
+  
+  // Inject styles.css if present
+  if (files['styles.css']) {
+    const styleBlock = `<style>\n/* Injected from styles.css */\n${files['styles.css']}\n</style>`;
+    if (processed.includes('</head>')) {
+      processed = processed.replace('</head>', `${styleBlock}\n</head>`);
+    } else if (processed.includes('<head>')) {
+      processed = processed.replace('<head>', `<head>\n${styleBlock}`);
+    } else if (processed.includes('<html')) {
+      processed = processed.replace('<html', `<head>${styleBlock}</head><html`);
+    } else {
+      processed = styleBlock + processed;
+    }
+  }
+  
+  // Inject script.js if present
+  if (files['script.js']) {
+    const scriptBlock = `<script>\n// Injected from script.js\n${files['script.js']}\n</script>`;
+    if (processed.includes('</body>')) {
+      processed = processed.replace('</body>', `${scriptBlock}\n</body>`);
+    } else if (processed.includes('<body>')) {
+      processed = processed.replace('<body>', `<body>\n${scriptBlock}`);
+    } else if (processed.includes('</html>')) {
+      processed = processed.replace('</html>', `${scriptBlock}\n</html>`);
+    } else {
+      processed = processed + scriptBlock;
+    }
+  }
+  
+  // Handle other CSS files (e.g., app.css, main.css)
+  Object.entries(files).forEach(([filename, content]) => {
+    if (filename.endsWith('.css') && filename !== 'styles.css') {
+      const styleBlock = `<style data-file="${filename}">\n/* Injected from ${filename} */\n${content}\n</style>`;
+      if (processed.includes('</head>')) {
+        processed = processed.replace('</head>', `${styleBlock}\n</head>`);
+      }
+    }
+    if (filename.endsWith('.js') && filename !== 'script.js') {
+      const scriptBlock = `<script data-file="${filename}">\n// Injected from ${filename}\n${content}\n</script>`;
+      if (processed.includes('</body>')) {
+        processed = processed.replace('</body>', `${scriptBlock}\n</body>`);
+      } else if (processed.includes('</html>')) {
+        processed = processed.replace('</html>', `${scriptBlock}\n</html>`);
+      }
+    }
+  });
+  
+  return processed;
+}
+
+function processHtml(html, files) {
+  // NEW: First inject CSS/JS from files
+  let out = files ? injectFilesIntoHtml(html, files) : html;
 
   // Add viewport if missing
   if (!out.includes('name="viewport"') && out.includes('<head>')) {
@@ -143,7 +199,8 @@ function processHtml(html) {
   return out;
 }
 
-export default function HtmlPreview({ html, title, onClose }) {
+// NEW: Accept files prop
+export default function HtmlPreview({ html, title, files, onClose }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [viewMode, setViewMode] = useState('preview');
   const [deviceFrame, setDeviceFrame] = useState('mobile');
@@ -154,13 +211,14 @@ export default function HtmlPreview({ html, title, onClose }) {
   useEffect(() => {
     if (!html) return;
     setBlobUrl(function(prev) { if (prev) URL.revokeObjectURL(prev); return null; });
-    var processed = processHtml(html);
+    // NEW: Pass files to processHtml
+    var processed = processHtml(html, files);
     var blob = new Blob([processed], { type: 'text/html;charset=utf-8' });
     var url = URL.createObjectURL(blob);
     setBlobUrl(url);
     setError(null);
     return function() { URL.revokeObjectURL(url); };
-  }, [html, refreshKey]);
+  }, [html, files, refreshKey]); // NEW: Added files to dependency array
 
   useEffect(() => {
     var handler = function(e) {
@@ -182,6 +240,12 @@ export default function HtmlPreview({ html, title, onClose }) {
             <X size={16} className="text-steel-400" />
           </button>
           <span className="text-xs font-mono text-steel-200 truncate max-w-[150px]">{title || 'Preview'}</span>
+          {/* NEW: Show file count indicator */}
+          {files && Object.keys(files).length > 0 && (
+            <span className="text-[10px] bg-neon-green/10 text-neon-green px-1.5 py-0.5 rounded">
+              {Object.keys(files).length} files
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <div className="flex bg-white/[0.03] rounded-lg border border-white/[0.06] p-0.5">
