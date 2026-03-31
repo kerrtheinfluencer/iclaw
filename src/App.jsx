@@ -37,7 +37,6 @@ export default function App() {
   const agent = useAgent();
   const multiAgent = useMultiAgent();
 
-  // Auto-restore saved keys
   useEffect(() => {
     if (keyRestoredRef.current) return;
     if (llm.status !== 'idle' && llm.status !== 'needsKey') return;
@@ -55,7 +54,6 @@ export default function App() {
     })();
   }, [llm.status]);
 
-  // Swipe gestures
   useEffect(() => {
     const onStart = (e) => { touchStartX.current = e.touches[0].clientX; };
     const onEnd = (e) => {
@@ -115,7 +113,6 @@ export default function App() {
     return ok;
   }, [workspace]);
 
-  // THIS IS THE PREVIEW HANDLER - Make sure this is here!
   const handlePreview = useCallback((html, title) => { 
     setPreviewHtml(html); 
     setPreviewTitle(title || 'Preview'); 
@@ -199,7 +196,6 @@ export default function App() {
         />
       )}
       
-      {/* THIS IS THE PREVIEW COMPONENT */}
       {previewHtml && (
         <HtmlPreview 
           html={previewHtml} 
