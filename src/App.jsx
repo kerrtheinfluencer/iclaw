@@ -5,13 +5,13 @@ import ChatView from './components/ChatView.jsx';
 import CodeEditor from './components/CodeEditor.jsx';
 import HtmlPreview from './components/HtmlPreview.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
+import AgentPanel from './components/AgentPanel.jsx';
+import MultiAgentPanel from './components/MultiAgentPanel.jsx';
+import RateLimitMonitor from './components/RateLimitMonitor.jsx';
 import { useLLM } from './hooks/useLLM.js';
 import { useWorkspace } from './hooks/useWorkspace.js';
 import { useAgent } from './hooks/useAgent.js';
-import AgentPanel from './components/AgentPanel.jsx';
 import { useMultiAgent } from './hooks/useMultiAgent.js';
-import RateLimitMonitor from './components/RateLimitMonitor.jsx';
-import MultiAgentPanel from './components/MultiAgentPanel.jsx';
 import { uid } from './utils/codeParser.js';
 import { saveChat, getSetting } from './utils/db.js';
 
@@ -115,9 +115,10 @@ export default function App() {
     return ok;
   }, [workspace]);
 
+  // THIS IS THE PREVIEW HANDLER - Make sure this is here!
   const handlePreview = useCallback((html, title) => { 
     setPreviewHtml(html); 
-    setPreviewTitle(title); 
+    setPreviewTitle(title || 'Preview'); 
   }, []);
 
   const handleNewChat = useCallback(() => {
@@ -198,6 +199,7 @@ export default function App() {
         />
       )}
       
+      {/* THIS IS THE PREVIEW COMPONENT */}
       {previewHtml && (
         <HtmlPreview 
           html={previewHtml} 
