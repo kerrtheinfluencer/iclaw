@@ -29,6 +29,7 @@ export default function App() {
   const [editingContent, setEditingContent] = useState('');
   const [previewHtml, setPreviewHtml] = useState(null);
   const [previewTitle, setPreviewTitle] = useState('');
+  const [previewFiles, setPreviewFiles] = useState({});
   const touchStartX = useRef(0);
   const keyRestoredRef = useRef(false);
 
@@ -116,7 +117,11 @@ export default function App() {
     return ok;
   }, [workspace]);
 
-  const handlePreview = useCallback((html, title) => { setPreviewHtml(html); setPreviewTitle(title); }, []);
+  const handlePreview = useCallback((html, title, files = {}) => { 
+    setPreviewHtml(html); 
+    setPreviewTitle(title);
+    setPreviewFiles(files);
+  }, []);
 
   const handleNewChat = useCallback(() => {
     setMessages([]);
@@ -171,8 +176,8 @@ export default function App() {
 
       {editingFile && <CodeEditor path={editingFile} initialContent={editingContent}
         onSave={handleEditorSave} onClose={() => setEditingFile(null)} />}
-      {previewHtml && <HtmlPreview html={previewHtml} title={previewTitle}
-        onClose={() => setPreviewHtml(null)} />}
+      {previewHtml && <HtmlPreview html={previewHtml} title={previewTitle} files={previewFiles}
+        onClose={() => { setPreviewHtml(null); setPreviewFiles({}); }} />}
       <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}
         onSelectEngine={llm.initModel} onSetKey={(p, k) => { llm.setKey(p, k); setAgentKeys(prev => ({...prev, [p]: k})); setAgentApiKey(k); }}
         activeEngine={llm.activeEngine} llmStatus={llm.status}
