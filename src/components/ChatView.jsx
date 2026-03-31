@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Send, Paperclip, Search, Mic, FolderOpen } from 'lucide-react';
+import { Send, Paperclip, Search, Mic, FolderOpen, Play } from 'lucide-react';
 
 export default function ChatView({ 
   messages, 
@@ -23,6 +23,20 @@ export default function ChatView({
 
   const isReady = llmStatus === 'ready' || llmStatus === 'idle';
   const isError = llmStatus === 'error';
+
+  // Extract HTML from message content
+  const extractHtmlFromMessage = (content) => {
+    const htmlMatch = content.match(/```html\n([\s\S]*?)```/);
+    if (htmlMatch) {
+      return htmlMatch[1].trim();
+    }
+    // Also match if it starts with <!DOCTYPE or <html
+    if (content.includes('<!DOCTYPE html>') || content.includes('<html')) {
+      const match = content.match(/(<!DOCTYPE html>[\s\S]*?<\/html>)/);
+      if (match) return match[1].trim();
+    }
+    return null;
+  };
 
   const handleSend = useCallback(() => {
     if (!input.trim() || !isReady) return;
@@ -92,22 +106,40 @@ export default function ChatView({
             )}
           </div>
         ) : (
-          messages.map((msg, i) => (
-            <div key={msg.id || i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                msg.role === 'user' 
-                  ? 'bg-[#00ff88] text-[#0a0a0f]' 
-                  : 'bg-[#1a1a24] text-[#e0e0e0] border border-[#333]'
-              }`}>
-                <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
-                {msg.stats && (
-                  <div className="text-xs mt-2 opacity-60">
-                    {msg.stats.tokens} tokens · {msg.stats.elapsed}s · {msg.stats.tokPerSec} tok/s
-                  </div>
-                )}
+          messages.map((msg, i) => {
+            const htmlContent = msg.role === 'assistant' ? extractHtmlFromMessage(msg.content) : null;
+            
+            return (
+              <div key={msg.id || i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+                  msg.role === 'user' 
+                    ? 'bg-[#00ff88] text-[#0a0a0f]' 
+                    : 'bg-[#1a1a24] text-[#e0e0e0] border border-[#333]'
+                }`}>
+                  <div className="whitespace-pre-wrap text-sm font-mono">{msg.content}</div>
+                  
+                  {/* HTML Preview Button */}
+                  {htmlContent && (
+                    <div className="mt-3 pt-3 border-t border-[#333]">
+                      <button
+                        onClick={() => onPreview(htmlContent, 'generated_preview.html')}
+                        className="flex items-center gap-2 px-3 py-2 bg-[#00ff88]/10 text-[#00ff88] rounded-lg text-sm hover:bg-[#00ff88]/20 transition-colors"
+                      >
+                        <Play className="w-4 h-4" />
+                        Run Preview
+                      </button>
+                    </div>
+                  )}
+                  
+                  {msg.stats && (
+                    <div className="text-xs mt-2 opacity-60">
+                      {msg.stats.tokens} tokens · {msg.stats.elapsed}s · {msg.stats.tokPerSec} tok/s
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
         
         {isSearching && (
