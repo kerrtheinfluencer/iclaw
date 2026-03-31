@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Send, Paperclip, Search, Mic, FolderOpen, Play } from 'lucide-react';
+import { Send, Paperclip, Search, Mic, FolderOpen, Play, FileCode } from 'lucide-react';
 
 export default function ChatView({ 
   messages, 
@@ -24,20 +24,49 @@ export default function ChatView({
   const isReady = llmStatus === 'ready' || llmStatus === 'idle';
   const isError = llmStatus === 'error';
 
-  const extractHtmlFromMessage = (content) => {
-    if (!content || typeof content !== 'string') return null;
+  // Extract all files from message (HTML, CSS, JS, etc.)
+  const extractFilesFromMessage = (content) => {
+    if (!content || typeof content !== 'string') return [];
     
-    const htmlMatch = content.match(/```html\n([\s\S]*?)```/);
-    if (htmlMatch && htmlMatch[1]) {
-      return htmlMatch[1].trim();
+    const files = [];
+    
+    // Match ```html blocks with filename comments
+    const htmlRegex = /```html\s*(?:(?:\/\/|<!--)\s*([^\n]+)\n)?([\s\S]*?)```/g;
+    let match;
+    while ((match = htmlRegex.exec(content)) !== null) {
+      files.push({
+        name: match[1]?.trim() || 'index.html',
+        content: match[2].trim(),
+        type: 'html'
+      });
     }
     
-    if (content.includes('<!DOCTYPE html>') || content.includes('<html')) {
-      const match = content.match(/(<!DOCTYPE html>[\s\S]*?<\/html>)/i);
-      if (match) return match[1].trim();
+    // Match ```css blocks
+    const cssRegex = /```css\s*(?:(?:\/\/|\/\*)\s*([^\n]+)\n)?([\s\S]*?)```/g;
+    while ((match = cssRegex.exec(content)) !== null) {
+      files.push({
+        name: match[1]?.trim() || 'styles.css',
+        content: match[2].trim(),
+        type: 'css'
+      });
     }
     
-    return null;
+    // Match ```javascript/js blocks
+    const jsRegex = /```(?:javascript|js)\s*(?:(?:\/\/)\s*([^\n]+)\n)?([\s\S]*?)```/g;
+    while ((match = jsRegex.exec(content)) !== null) {
+      files.push({
+        name: match[1]?.trim() || 'script.js',
+        content: match[2].trim(),
+        type: 'javascript'
+      });
+    }
+    
+    return files;
+  };
+
+  // Check if we have a complete previewable project
+  const hasPreviewableContent = (files) => {
+    return files.some(f => f.type === 'html');
   };
 
   const handleSend = useCallback(() => {
@@ -109,26 +138,44 @@ export default function ChatView({
           </div>
         ) : (
           messages.map((msg, i) => {
-            const htmlContent = msg.role === 'assistant' ? extractHtmlFromMessage(msg.content) : null;
+            const extractedFiles = msg.role === 'assistant' ? extractFilesFromMessage(msg.content) : [];
+            const canPreview = hasPreviewableContent(extractedFiles);
             
             return (
               <div key={msg.id || i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+                <div className={`max-w-[90%] rounded-2xl px-4 py-3 ${
                   msg.role === 'user' 
                     ? 'bg-[#00ff88] text-[#0a0a0f]' 
                     : 'bg-[#1a1a24] text-[#e0e0e0] border border-[#333]'
                 }`}>
-                  <div className="whitespace-pre-wrap text-sm font-mono">{msg.content}</div>
+                  <div className="whitespace-pre-wrap text-sm font-mono overflow-x-auto">{msg.content}</div>
                   
-                  {htmlContent && (
+                  {extractedFiles.length > 0 && (
                     <div className="mt-3 pt-3 border-t border-[#333]">
-                      <button
-                        onClick={() => onPreview(htmlContent, 'preview.html')}
-                        className="flex items-center gap-2 px-3 py-2 bg-[#00ff88] text-[#0a0a0f] rounded-lg text-sm font-medium hover:bg-[#00ff88]/90 transition-colors"
-                      >
-                        <Play className="w-4 h-4" />
-                        Run Preview
-                      </button>
+                      <div className="flex items-center gap-2 mb-2">
+                        <FileCode className="w-4 h-4 text-[#00ff88]" />
+                        <span className="text-xs text-[#666]">
+                          {extractedFiles.length} file(s) generated
+                        </span>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {extractedFiles.map((file, idx) => (
+                          <span key={idx} className="text-xs px-2 py-1 bg-[#0f0f16] rounded text-[#888]">
+                            {file.name}
+                          </span>
+                        ))}
+                      </div>
+                      
+                      {canPreview && (
+                        <button
+                          onClick={() => onPreview(extractedFiles)}
+                          className="flex items-center gap-2 px-4 py-2 bg-[#00ff88] text-[#0a0a0f] rounded-lg text-sm font-medium hover:bg-[#00ff88]/90 transition-colors"
+                        >
+                          <Play className="w-4 h-4" />
+                          Run Preview
+                        </button>
+                      )}
                     </div>
                   )}
                   
