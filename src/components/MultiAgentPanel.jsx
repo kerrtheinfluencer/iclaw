@@ -2,78 +2,94 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   X, Play, Square, Trash2, ChevronDown, ChevronRight,
   FileText, Globe, Terminal, Check, AlertCircle, Loader2,
-  Users, Eye, Archive, Bot, Code2, Search, Sparkles,
+  Users, Eye, Archive, Bot, Code2, Search, Sparkles, RefreshCw,
 } from 'lucide-react';
 
 const AGENT_META = {
-  planner:  { label: 'Planner',  color: 'text-blue-400',     border: 'border-blue-400/30',     bg: 'bg-blue-400/[0.04]',     icon: Search,   desc: 'Researches & writes spec' },
-  coder:    { label: 'Coder',    color: 'text-neon-green',   border: 'border-neon-green/30',   bg: 'bg-neon-green/[0.04]',   icon: Code2,    desc: 'Implements all files' },
-  reviewer: { label: 'Reviewer', color: 'text-neon-amber',   border: 'border-neon-amber/30',   bg: 'bg-neon-amber/[0.04]',   icon: Sparkles, desc: 'Audits & fixes code' },
+  planner:  { label: 'Planner',  color: 'text-blue-400',   border: 'border-blue-400/30',   bg: 'bg-blue-400/[0.04]',   icon: Search,   desc: 'Researches & writes spec' },
+  coder:    { label: 'Coder',    color: 'text-neon-green', border: 'border-neon-green/30', bg: 'bg-neon-green/[0.04]', icon: Code2,    desc: 'Implements all files' },
+  reviewer: { label: 'Reviewer', color: 'text-neon-amber', border: 'border-neon-amber/30', bg: 'bg-neon-amber/[0.04]', icon: Sparkles, desc: 'Audits & fixes code' },
 };
 
 const STEP_ICONS = {
-  think:      Bot,
-  search:     Globe,
-  plan:       Bot,
-  write_file: FileText,
-  check:      Check,
-  finish:     Check,
-  error:      AlertCircle,
+  think: Bot, search: Globe, plan: Bot,
+  write_file: FileText, check: Check,
+  finish: Check, error: AlertCircle,
 };
 
-const STATUS_ICONS = {
-  running: <Loader2 size={11} className="text-neon-cyan animate-spin shrink-0" />,
-  done:    <Check size={11} className="text-neon-green shrink-0" />,
-  error:   <AlertCircle size={11} className="text-neon-pink shrink-0" />,
-  warn:    <AlertCircle size={11} className="text-neon-amber shrink-0" />,
+const STATUS_COLORS = {
+  running: 'text-neon-cyan',
+  done: 'text-neon-green',
+  error: 'text-neon-pink',
+  warn: 'text-neon-amber',
+  retrying: 'text-neon-amber',
 };
 
-async function downloadFilesAsZip(files) {
-  if (!window.JSZip) {
-    await new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
-      s.onload = resolve; s.onerror = reject;
-      document.head.appendChild(s);
-    });
-  }
-  const zip = new window.JSZip();
-  for (const [path, content] of Object.entries(files)) zip.file(path, content);
-  const blob = await zip.generateAsync({ type: 'blob' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `iclaw-multiagent-${Date.now()}.zip`;
-  document.body.appendChild(a); a.click();
-  document.body.removeChild(a); URL.revokeObjectURL(url);
+// Step component — NO useState inside map
+function AgentStep({ step, agentColor, onResume }) {
+  const [expanded, setExpanded] = useState(false);
+  const StepIcon = STEP_ICONS[step.type] || Bot;
+  const isError = step.status === 'error';
+  const isRetrying = step.status === 'retrying';
+
+  return (
+    <div className={`rounded-lg border overflow-hidden ${
+      isError ? 'border-neon-pink/20' : isRetrying ? 'border-neon-amber/20' : 'border-white/[0.04]'
+    }`}>
+      <button
+        onClick={() => step.detail && setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.02]"
+      >
+        <StepIcon size={11} className={agentColor + '/70'} />
+        <span className="flex-1 text-[11px] font-mono text-steel-300 truncate">{step.label}</span>
+        {step.status === 'running' && <Loader2 size={11} className="text-neon-cyan animate-spin shrink-0" />}
+        {step.status === 'retrying' && <RefreshCw size={11} className="text-neon-amber animate-spin shrink-0" />}
+        {step.status === 'done' && <Check size={11} className="text-neon-green shrink-0" />}
+        {isError && <AlertCircle size={11} className="text-neon-pink shrink-0" />}
+        {step.detail && (
+          expanded ? <ChevronDown size={10} className="text-steel-600 shrink-0" /> : <ChevronRight size={10} className="text-steel-600 shrink-0" />
+        )}
+      </button>
+      {expanded && step.detail && (
+        <div className="px-3 pb-2 border-t border-white/[0.04]">
+          <pre className="text-[10px] font-mono text-steel-500 whitespace-pre-wrap pt-2 max-h-32 overflow-y-auto leading-relaxed">
+            {step.detail}
+          </pre>
+          {isError && onResume && (
+            <button
+              onClick={() => onResume(step)}
+              className="mt-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-mono border border-neon-amber/25 text-neon-amber bg-neon-amber/5 hover:bg-neon-amber/10 active:scale-95 transition-all"
+            >
+              <RefreshCw size={10} />
+              Manual Resume
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
-function AgentLane({ name, agent, isActive }) {
+// Lane component — clean, no hooks inside map
+function AgentLane({ name, agent, isActive, onResume }) {
+  const [expanded, setExpanded] = useState(false);
   const meta = AGENT_META[name];
   const Icon = meta.icon;
-  const [expanded, setExpanded] = useState(false);
-
-  const statusColor =
-    agent.status === 'running' ? 'text-neon-cyan' :
-    agent.status === 'done'    ? meta.color :
-    agent.status === 'error'   ? 'text-neon-pink' :
-    'text-steel-600';
+  const hasSteps = agent.steps?.length > 0;
 
   const statusDot =
-    agent.status === 'running' ? 'bg-neon-cyan animate-pulse' :
-    agent.status === 'done'    ? 'bg-neon-green' :
-    agent.status === 'error'   ? 'bg-neon-pink' :
+    agent.status === 'running'  ? 'bg-neon-cyan animate-pulse' :
+    agent.status === 'done'     ? 'bg-neon-green' :
+    agent.status === 'error'    ? 'bg-neon-pink' :
+    agent.status === 'retrying' ? 'bg-neon-amber animate-pulse' :
     'bg-steel-700';
 
   return (
     <div className={`rounded-xl border overflow-hidden transition-all duration-300 ${
-      isActive ? `${meta.border} ${meta.bg}` :
-      agent.status === 'done' ? 'border-white/[0.08]' :
-      'border-white/[0.04]'
+      isActive ? `${meta.border} ${meta.bg}` : 'border-white/[0.04]'
     }`}>
-      {/* Lane header */}
       <button
-        onClick={() => agent.steps.length > 0 && setExpanded(!expanded)}
+        onClick={() => hasSteps && setExpanded(!expanded)}
         className="w-full flex items-center gap-3 px-3 py-2.5 text-left"
       >
         <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
@@ -87,49 +103,52 @@ function AgentLane({ name, agent, isActive }) {
               {meta.label}
             </span>
             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusDot}`} />
+            {agent.status === 'retrying' && (
+              <span className="text-[9px] font-mono text-neon-amber animate-pulse">retrying...</span>
+            )}
           </div>
           <p className="text-[9px] text-steel-600 font-mono">{meta.desc}</p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           {agent.status === 'running' && <Loader2 size={12} className="text-neon-cyan animate-spin" />}
-          {agent.status === 'done' && <span className="text-[9px] font-mono text-neon-green">{agent.steps.length} steps</span>}
-          {agent.steps.length > 0 && (
-            expanded
-              ? <ChevronDown size={11} className="text-steel-600" />
-              : <ChevronRight size={11} className="text-steel-600" />
-          )}
+          {agent.status === 'done' && <span className="text-[9px] font-mono text-neon-green">{agent.steps?.length} steps</span>}
+          {hasSteps && (expanded ? <ChevronDown size={11} className="text-steel-600" /> : <ChevronRight size={11} className="text-steel-600" />)}
         </div>
       </button>
 
-      {/* Steps */}
-      {expanded && agent.steps.length > 0 && (
+      {expanded && hasSteps && (
         <div className="border-t border-white/[0.04] px-3 py-2 space-y-1.5">
-          {agent.steps.map((step, i) => {
-            const StepIcon = STEP_ICONS[step.type] || Bot;
-            const [stepExpanded, setStepExpanded] = useState(false);
-            return (
-              <div key={step.id}>
-                <button
-                  onClick={() => step.detail && setStepExpanded(!stepExpanded)}
-                  className="w-full flex items-center gap-2 py-1 text-left hover:bg-white/[0.02] rounded px-1"
-                >
-                  <span className="text-[9px] font-mono text-steel-700 w-3">{i+1}</span>
-                  <StepIcon size={11} className={meta.color + '/70'} />
-                  <span className="flex-1 text-[11px] font-mono text-steel-300 truncate">{step.label}</span>
-                  {STATUS_ICONS[step.status]}
-                </button>
-                {stepExpanded && step.detail && (
-                  <pre className="text-[10px] font-mono text-steel-500 whitespace-pre-wrap pl-6 pb-1 max-h-32 overflow-y-auto leading-relaxed">
-                    {step.detail}
-                  </pre>
-                )}
-              </div>
-            );
-          })}
+          {agent.steps.map((step) => (
+            <AgentStep
+              key={step.id}
+              step={step}
+              agentColor={meta.color}
+              onResume={onResume}
+            />
+          ))}
         </div>
       )}
     </div>
   );
+}
+
+async function downloadFilesAsZip(files) {
+  if (!window.JSZip) {
+    await new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+      s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+  const zip = new window.JSZip();
+  for (const [path, content] of Object.entries(files)) zip.file(path, content);
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `iclaw-multiagent-${Date.now()}.zip`;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
 }
 
 const EXAMPLE_TASKS = [
@@ -142,26 +161,23 @@ const EXAMPLE_TASKS = [
 export default function MultiAgentPanel({
   isOpen, onClose,
   isRunning, agents, files, activeAgent,
-  onRun, onStop, onClear,
+  onRun, onStop, onClear, onResume,
   apiKey, onPreviewFile,
 }) {
   const [task, setTask] = useState('');
   const fileList = Object.keys(files || {});
+
   const safeAgents = agents || {
     planner: { status: 'idle', steps: [] },
     coder:   { status: 'idle', steps: [] },
     reviewer:{ status: 'idle', steps: [] },
   };
-  const allDone = safeAgents.planner.status === 'done' &&
-                  safeAgents.coder.status === 'done' &&
-                  safeAgents.reviewer.status === 'done';
-  const hasStarted = isRunning || Object.values(safeAgents).some(a => a.steps?.length > 0);
 
-  // When panel opens and nothing has started, clear state
+  const hasStarted = isRunning || Object.values(safeAgents).some(a => a.steps?.length > 0);
+  const allDone = ['planner','coder','reviewer'].every(k => safeAgents[k]?.status === 'done');
+
   useEffect(() => {
-    if (isOpen && !hasStarted && !isRunning) {
-      setTask('');
-    }
+    if (isOpen && !hasStarted) setTask('');
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -178,11 +194,7 @@ export default function MultiAgentPanel({
               {activeAgent ? activeAgent.toUpperCase() : 'RUNNING'}
             </span>
           )}
-          {allDone && (
-            <span className="text-[9px] font-mono text-neon-green bg-neon-green/10 px-1.5 py-0.5 rounded-full">
-              COMPLETE
-            </span>
-          )}
+          {allDone && <span className="text-[9px] font-mono text-neon-green bg-neon-green/10 px-1.5 py-0.5 rounded-full">DONE</span>}
         </div>
         <div className="flex items-center gap-1">
           {hasStarted && !isRunning && (
@@ -197,10 +209,9 @@ export default function MultiAgentPanel({
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {/* Task input — show when not started */}
+        {/* Task input */}
         {!hasStarted && !isRunning && (
           <div className="px-4 py-4 space-y-4">
-            {/* How it works */}
             <div className="grid grid-cols-3 gap-2">
               {Object.entries(AGENT_META).map(([key, meta]) => {
                 const Icon = meta.icon;
@@ -216,20 +227,17 @@ export default function MultiAgentPanel({
 
             {!apiKey && (
               <div className="px-3 py-2 rounded-lg bg-neon-amber/5 border border-neon-amber/15">
-                <p className="text-[10px] text-neon-amber/80 font-mono">Gemini API key required — set in Settings.</p>
+                <p className="text-[10px] text-neon-amber/80 font-mono">API key required — set in Settings.</p>
               </div>
             )}
 
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-mono text-steel-500 uppercase tracking-wider">Task for the team</label>
-              <textarea
-                value={task}
-                onChange={e => setTask(e.target.value)}
-                placeholder="Describe what you want built — be as detailed as you like..."
-                rows={4}
-                className="w-full input-stealth text-sm py-2.5 resize-none rounded-xl"
-              />
-            </div>
+            <textarea
+              value={task}
+              onChange={e => setTask(e.target.value)}
+              placeholder="Describe what you want built..."
+              rows={4}
+              className="w-full input-stealth text-sm py-2.5 resize-none rounded-xl"
+            />
 
             <div className="grid grid-cols-2 gap-2">
               {EXAMPLE_TASKS.map(t => (
@@ -254,33 +262,34 @@ export default function MultiAgentPanel({
         {/* Agent lanes */}
         {hasStarted && (
           <div className="px-4 py-3 space-y-3">
-            {/* Overall progress */}
-            <div className="flex items-center gap-3 px-1">
+            {/* Progress steps */}
+            <div className="flex items-center gap-2 px-1">
               {Object.entries(AGENT_META).map(([key, meta], i) => (
                 <React.Fragment key={key}>
-                  <div className="flex items-center gap-1.5">
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-mono font-bold
-                      ${safeAgents[key].status === 'done' ? 'bg-neon-green/20 text-neon-green border border-neon-green/30' :
-                        safeAgents[key].status === 'running' ? 'bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/30 animate-pulse' :
-                        'bg-white/[0.04] text-steel-600 border border-white/[0.06]'}`}>
-                      {i+1}
-                    </div>
-                    <span className={`text-[10px] font-mono ${
-                      safeAgents[key].status === 'done' ? 'text-neon-green' :
-                      safeAgents[key].status === 'running' ? meta.color : 'text-steel-600'
+                  <div className="flex items-center gap-1">
+                    <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-mono font-bold border transition-all ${
+                      safeAgents[key]?.status === 'done'    ? 'bg-neon-green/20 text-neon-green border-neon-green/30' :
+                      safeAgents[key]?.status === 'running' ? 'bg-neon-cyan/20 text-neon-cyan border-neon-cyan/30 animate-pulse' :
+                      safeAgents[key]?.status === 'error'   ? 'bg-neon-pink/20 text-neon-pink border-neon-pink/30' :
+                      'bg-white/[0.04] text-steel-600 border-white/[0.06]'
+                    }`}>{i + 1}</div>
+                    <span className={`text-[9px] font-mono ${
+                      safeAgents[key]?.status === 'done' ? 'text-neon-green' :
+                      safeAgents[key]?.status === 'running' ? meta.color : 'text-steel-600'
                     }`}>{meta.label}</span>
                   </div>
-                  {i < 2 && <div className={`flex-1 h-px ${safeAgents[key].status === 'done' ? 'bg-neon-green/30' : 'bg-white/[0.06]'}`} />}
+                  {i < 2 && <div className={`flex-1 h-px ${safeAgents[key]?.status === 'done' ? 'bg-neon-green/30' : 'bg-white/[0.06]'}`} />}
                 </React.Fragment>
               ))}
             </div>
 
-            {Object.entries(AGENT_META).map(([key]) => (
+            {Object.keys(AGENT_META).map(key => (
               <AgentLane
                 key={key}
                 name={key}
-                agent={safeAgents[key]}
+                agent={safeAgents[key] || { status: 'idle', steps: [] }}
                 isActive={activeAgent === key}
+                onResume={onResume}
               />
             ))}
           </div>
@@ -289,9 +298,7 @@ export default function MultiAgentPanel({
         {/* Files */}
         {fileList.length > 0 && (
           <div className="px-4 pb-3 space-y-2">
-            <span className="text-[10px] font-mono text-steel-500 uppercase tracking-wider">
-              Output Files ({fileList.length})
-            </span>
+            <span className="text-[10px] font-mono text-steel-500 uppercase tracking-wider">Output Files ({fileList.length})</span>
             <div className="flex flex-wrap gap-1.5">
               {fileList.map(path => (
                 <button key={path}
@@ -304,10 +311,8 @@ export default function MultiAgentPanel({
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => downloadFilesAsZip(files)}
-              className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-mono border border-neon-cyan/20 text-neon-cyan/80 bg-neon-cyan/5 hover:bg-neon-cyan/10 active:scale-[0.98] transition-all"
-            >
+            <button onClick={() => downloadFilesAsZip(files)}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-[10px] font-mono border border-neon-cyan/20 text-neon-cyan/80 bg-neon-cyan/5 hover:bg-neon-cyan/10 active:scale-[0.98] transition-all">
               <Archive size={12} />
               Download all as .zip
             </button>
@@ -325,7 +330,7 @@ export default function MultiAgentPanel({
           </button>
         ) : hasStarted ? (
           <button onClick={onClear}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-mono text-sm border border-white/[0.06] text-steel-400 bg-white/[0.02] hover:bg-white/[0.04] active:scale-[0.98] transition-all">
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl font-mono text-sm border border-white/[0.06] text-steel-400 bg-white/[0.02] active:scale-[0.98] transition-all">
             <Trash2 size={13} />
             New Task
           </button>
