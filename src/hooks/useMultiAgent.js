@@ -21,28 +21,66 @@ async function browserSearch(query) {
   return null;
 }
 
+// FIXED: Now handles both markdown code blocks AND JSON tool calls
 function extractFiles(response) {
   const files = {};
-  // Try to find filename comments in code blocks
-  const regex = /```[\w]*\n(?:\/\/\s*|#\s*|<!--\s*)?([^\s<>]+\.\w+)[^\n]*\n([\s\S]*?)```/g;
+  
+  // Pattern 1: JSON tool calls like {"tool":"write_file","args":{"path":"index.html","content":"..."}}
+  const jsonToolRegex = /\{\s*"tool"\s*:\s*"write_file"\s*,\s*"args"\s*:\s*\{\s*"path"\s*:\s*"([^"]+)"\s*,\s*"content"\s*:\s*"([\s\S]*?)"\s*\}\s*\}/g;
   let match;
-  while ((match = regex.exec(response)) !== null) {
-    const path = match[1].replace(/-->.*/, '').trim();
-    const content = match[2].trim();
-    if (path && content && !path.includes(' ')) files[path] = content;
+  while ((match = jsonToolRegex.exec(response)) !== null) {
+    const path = match[1];
+    // Unescape the JSON string content
+    let content = match[2]
+      .replace(/\\n/g, '\n')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\')
+      .replace(/\\t/g, '\t');
+    if (path && content) files[path] = content;
   }
-  // Fallback: grab any code block
+  
+  // Pattern 2: Markdown code blocks with // filename.ext headers
+  if (Object.keys(files).length === 0) {
+    const regex = /```[\w]*\n(?:\/\/\s*|#\s*|<!--\s*)?([^\s<>]+\.\w+)[^\n]*\n([\s\S]*?)```/g;
+    while ((match = regex.exec(response)) !== null) {
+      const path = match[1].replace(/-->.*/, '').trim();
+      const content = match[2].trim();
+      if (path && content && !path.includes(' ')) files[path] = content;
+    }
+  }
+  
+  // Pattern 3: XML-style tags like <file path="index.html">content</file>
+  if (Object.keys(files).length === 0) {
+    const xmlRegex = /<file\s+path="([^"]+)"[^>]*>([\s\S]*?)<\/file>/g;
+    while ((match = xmlRegex.exec(response)) !== null) {
+      const path = match[1];
+      const content = match[2].trim();
+      if (path && content) files[path] = content;
+    }
+  }
+  
+  // Fallback: grab any code block if no files found yet
   if (Object.keys(files).length === 0) {
     const fallback = /```(\w+)\n([\s\S]*?)```/g;
     let i = 0;
     while ((match = fallback.exec(response)) !== null) {
       const lang = match[1];
       const content = match[2].trim();
-      const extMap = { html:'index.html', css:'styles.css', javascript:'script.js', js:'script.js', python:'main.py', jsx:'app.jsx', ts:'script.ts', tsx:'app.tsx' };
+      const extMap = { 
+        html: 'index.html', 
+        css: 'styles.css', 
+        javascript: 'script.js', 
+        js: 'script.js', 
+        python: 'main.py', 
+        jsx: 'App.jsx', 
+        ts: 'script.ts', 
+        tsx: 'App.tsx' 
+      };
       files[extMap[lang] || `file${i}.${lang}`] = content;
       i++;
     }
   }
+  
   return files;
 }
 
