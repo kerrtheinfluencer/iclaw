@@ -10,6 +10,7 @@ import { useWorkspace } from './hooks/useWorkspace.js';
 import { useAgent } from './hooks/useAgent.js';
 import AgentPanel from './components/AgentPanel.jsx';
 import { useMultiAgent } from './hooks/useMultiAgent.js';
+import RateLimitMonitor from './components/RateLimitMonitor.jsx';
 import MultiAgentPanel from './components/MultiAgentPanel.jsx';
 import { uid } from './utils/codeParser.js';
 import { saveChat, getSetting } from './utils/db.js';
@@ -19,6 +20,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
   const [multiAgentOpen, setMultiAgentOpen] = useState(false);
+  const [rateLimitOpen, setRateLimitOpen] = useState(false);
   const [agentApiKey, setAgentApiKey] = useState('');
   const [agentKeys, setAgentKeys] = useState({});
   const [messages, setMessages] = useState([]);
@@ -143,7 +145,8 @@ export default function App() {
         onSettingsOpen={() => setSettingsOpen(true)}
         onSelectModel={llm.selectModel}
         onOpenAgent={() => setAgentOpen(true)}
-        onOpenMultiAgent={() => setMultiAgentOpen(true)} />
+        onOpenMultiAgent={() => setMultiAgentOpen(true)}
+        onOpenRateLimit={() => setRateLimitOpen(true)} />
 
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)}
         tree={workspace.tree} projectName={workspace.projectName}
@@ -174,6 +177,10 @@ export default function App() {
         onSelectEngine={llm.initModel} onSetKey={(p, k) => { llm.setKey(p, k); setAgentKeys(prev => ({...prev, [p]: k})); setAgentApiKey(k); }}
         activeEngine={llm.activeEngine} llmStatus={llm.status}
         activeModel={llm.activeModel} onSelectModel={llm.selectModel} />
+      <RateLimitMonitor
+        isOpen={rateLimitOpen} onClose={() => setRateLimitOpen(false)}
+        activeEngine={llm.activeEngine} activeModel={llm.activeModel}
+      />
       <MultiAgentPanel
         isOpen={multiAgentOpen} onClose={() => setMultiAgentOpen(false)}
         isRunning={multiAgent.isRunning} agents={multiAgent.agents}
