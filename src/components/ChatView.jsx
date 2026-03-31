@@ -122,8 +122,8 @@ export default function ChatView({
                   {htmlContent && (
                     <div className="mt-3 pt-3 border-t border-[#333]">
                       <button
-                        onClick={() => onPreview(htmlContent, 'generated_preview.html')}
-                        className="flex items-center gap-2 px-3 py-2 bg-[#00ff88]/10 text-[#00ff88] rounded-lg text-sm hover:bg-[#00ff88]/20 transition-colors"
+                        onClick={() => onPreview(htmlContent, 'preview.html')}
+                        className="flex items-center gap-2 px-3 py-2 bg-[#00ff88] text-[#0a0a0f] rounded-lg text-sm font-medium hover:bg-[#00ff88]/90 transition-colors"
                       >
                         <Play className="w-4 h-4" />
                         Run Preview
