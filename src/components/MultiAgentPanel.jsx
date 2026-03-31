@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Play, Square, Trash2, FileCode, Eye, Users, Bot, Code, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Play, Square, Trash2, FileCode, Eye, Users, Bot, Code, CheckCircle, ExternalLink } from 'lucide-react';
 
 const AGENT_ICONS = {
   planner: Bot,
@@ -26,10 +26,30 @@ export default function MultiAgentPanel({
   onPreviewFile
 }) {
   const [task, setTask] = useState('');
+  const [autoPreview, setAutoPreview] = useState(true);
+
+  // Auto-preview HTML files
+  useEffect(() => {
+    if (!autoPreview || !onPreviewFile) return;
+    
+    const htmlFiles = Object.entries(files).filter(([path]) => path.endsWith('.html'));
+    if (htmlFiles.length > 0) {
+      // Preview the last generated HTML file
+      const [path, content] = htmlFiles[htmlFiles.length - 1];
+      onPreviewFile(content, path);
+    }
+  }, [files, autoPreview, onPreviewFile]);
 
   const handleRun = () => {
     if (!task.trim() || isRunning) return;
     onRun(task);
+  };
+
+  const getFileIcon = (filename) => {
+    if (filename.endsWith('.html')) return '🌐';
+    if (filename.endsWith('.js') || filename.endsWith('.jsx')) return '⚡';
+    if (filename.endsWith('.css')) return '🎨';
+    return '📄';
   };
 
   const allSteps = Object.entries(agents).flatMap(([name, agent]) => 
@@ -81,42 +101,54 @@ export default function MultiAgentPanel({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm text-[#888]">Task Description</label>
+            <label className="text-sm text-[#888]">Describe your project</label>
             <textarea
               value={task}
               onChange={(e) => setTask(e.target.value)}
-              placeholder="Describe the project you want the multi-agent system to build..."
+              placeholder="e.g., Build a complete task management app with local storage, dark mode, and animations..."
               className="w-full h-24 bg-[#1a1a24] border border-[#333] rounded-lg p-3 text-sm text-[#e0e0e0] placeholder-[#666] focus:outline-none focus:border-[#00ff88] resize-none"
               disabled={isRunning}
             />
           </div>
 
-          <div className="flex gap-2">
-            {!isRunning ? (
+          <div className="flex items-center justify-between">
+            <div className="flex gap-2">
+              {!isRunning ? (
+                <button
+                  onClick={handleRun}
+                  disabled={!task.trim() || !apiKey}
+                  className="flex items-center gap-2 px-4 py-2 bg-[#00ff88] text-[#0a0a0f] rounded-lg font-medium hover:bg-[#00ff88]/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Play className="w-4 h-4" />
+                  Run Multi-Agent
+                </button>
+              ) : (
+                <button
+                  onClick={onStop}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg font-medium hover:bg-red-500/30"
+                >
+                  <Square className="w-4 h-4" />
+                  Stop
+                </button>
+              )}
               <button
-                onClick={handleRun}
-                disabled={!task.trim() || !apiKey}
-                className="flex items-center gap-2 px-4 py-2 bg-[#00ff88] text-[#0a0a0f] rounded-lg font-medium hover:bg-[#00ff88]/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={onClear}
+                className="flex items-center gap-2 px-4 py-2 bg-[#1a1a24] text-[#666] border border-[#333] rounded-lg hover:bg-[#222]"
               >
-                <Play className="w-4 h-4" />
-                Run Multi-Agent
+                <Trash2 className="w-4 h-4" />
+                Clear
               </button>
-            ) : (
-              <button
-                onClick={onStop}
-                className="flex items-center gap-2 px-4 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg font-medium hover:bg-red-500/30"
-              >
-                <Square className="w-4 h-4" />
-                Stop
-              </button>
-            )}
-            <button
-              onClick={onClear}
-              className="flex items-center gap-2 px-4 py-2 bg-[#1a1a24] text-[#666] border border-[#333] rounded-lg hover:bg-[#222]"
-            >
-              <Trash2 className="w-4 h-4" />
-              Clear
-            </button>
+            </div>
+            
+            <label className="flex items-center gap-2 text-sm text-[#888] cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoPreview}
+                onChange={(e) => setAutoPreview(e.target.checked)}
+                className="w-4 h-4 rounded border-[#333] bg-[#1a1a24] text-[#00ff88] focus:ring-[#00ff88]"
+              />
+              Auto-preview HTML
+            </label>
           </div>
 
           {allSteps.length > 0 && (
@@ -126,11 +158,11 @@ export default function MultiAgentPanel({
                 {allSteps.map((step, i) => {
                   const Icon = AGENT_ICONS[step.agentName];
                   return (
-                    <div key={step.id || i} className="flex items-start gap-3 p-3 bg-[#1a1a24] rounded-lg">
+                    <div key={step.id || i} className="flex items-start gap-3 p-3 bg-[#1a1a24] rounded-lg border border-[#333]">
                       <Icon className={`w-4 h-4 mt-0.5 ${AGENT_COLORS[step.agentName]}`} />
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-[#666] capitalize">{step.agentName}</span>
+                          <span className="text-xs text-[#666] capitalize font-medium">{step.agentName}</span>
                           <div className={`w-1.5 h-1.5 rounded-full ${
                             step.status === 'running' ? 'bg-yellow-500 animate-pulse' :
                             step.status === 'done' ? 'bg-green-500' :
@@ -139,7 +171,7 @@ export default function MultiAgentPanel({
                         </div>
                         <div className="text-sm text-[#e0e0e0] mt-0.5">{step.label}</div>
                         {step.detail && (
-                          <div className="text-xs text-[#666] mt-1">{step.detail}</div>
+                          <div className="text-xs text-[#666] mt-1 line-clamp-1">{step.detail}</div>
                         )}
                       </div>
                     </div>
@@ -154,17 +186,22 @@ export default function MultiAgentPanel({
               <h3 className="text-sm font-medium text-[#888]">Generated Files</h3>
               <div className="grid grid-cols-1 gap-2">
                 {Object.entries(files).map(([path, content]) => (
-                  <div key={path} className="flex items-center justify-between p-3 bg-[#1a1a24] rounded-lg border border-[#333]">
+                  <div key={path} className="flex items-center justify-between p-3 bg-[#1a1a24] rounded-lg border border-[#333] hover:border-[#00ff88]/30 transition-colors">
                     <div className="flex items-center gap-2">
-                      <FileCode className="w-4 h-4 text-[#00ff88]" />
-                      <span className="text-sm text-[#e0e0e0]">{path}</span>
+                      <span className="text-lg">{getFileIcon(path)}</span>
+                      <div>
+                        <span className="text-sm text-[#e0e0e0] font-mono">{path}</span>
+                        {path.endsWith('.html') && (
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 bg-[#00ff88]/20 text-[#00ff88] rounded">Preview Ready</span>
+                        )}
+                      </div>
                     </div>
                     <button
                       onClick={() => onPreviewFile?.(content, path)}
                       className="p-1.5 hover:bg-[#00ff88]/10 rounded text-[#00ff88]"
                       title="Preview"
                     >
-                      <Eye className="w-4 h-4" />
+                      <ExternalLink className="w-4 h-4" />
                     </button>
                   </div>
                 ))}
