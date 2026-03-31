@@ -146,11 +146,21 @@ export default function MultiAgentPanel({
   apiKey, onPreviewFile,
 }) {
   const [task, setTask] = useState('');
-  const fileList = Object.keys(files);
-  const allDone = agents.planner.status === 'done' &&
-                  agents.coder.status === 'done' &&
-                  agents.reviewer.status === 'done';
-  const hasStarted = Object.values(agents).some(a => a.status !== 'idle');
+  const fileList = Object.keys(files || {});
+  const safeAgents = agents || {
+    planner: { status: 'idle', steps: [] },
+    coder:   { status: 'idle', steps: [] },
+    reviewer:{ status: 'idle', steps: [] },
+  };
+  const allDone = safeAgents.planner.status === 'done' &&
+                  safeAgents.coder.status === 'done' &&
+                  safeAgents.reviewer.status === 'done';
+  const hasStarted = isRunning || Object.values(safeAgents).some(a => a.steps?.length > 0);
+
+  // Clear task input when panel opens fresh
+  useEffect(() => {
+    if (isOpen && !hasStarted) setTask('');
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -248,17 +258,17 @@ export default function MultiAgentPanel({
                 <React.Fragment key={key}>
                   <div className="flex items-center gap-1.5">
                     <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-mono font-bold
-                      ${agents[key].status === 'done' ? 'bg-neon-green/20 text-neon-green border border-neon-green/30' :
-                        agents[key].status === 'running' ? 'bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/30 animate-pulse' :
+                      ${safeAgents[key].status === 'done' ? 'bg-neon-green/20 text-neon-green border border-neon-green/30' :
+                        safeAgents[key].status === 'running' ? 'bg-neon-cyan/20 text-neon-cyan border border-neon-cyan/30 animate-pulse' :
                         'bg-white/[0.04] text-steel-600 border border-white/[0.06]'}`}>
                       {i+1}
                     </div>
                     <span className={`text-[10px] font-mono ${
-                      agents[key].status === 'done' ? 'text-neon-green' :
-                      agents[key].status === 'running' ? meta.color : 'text-steel-600'
+                      safeAgents[key].status === 'done' ? 'text-neon-green' :
+                      safeAgents[key].status === 'running' ? meta.color : 'text-steel-600'
                     }`}>{meta.label}</span>
                   </div>
-                  {i < 2 && <div className={`flex-1 h-px ${agents[key].status === 'done' ? 'bg-neon-green/30' : 'bg-white/[0.06]'}`} />}
+                  {i < 2 && <div className={`flex-1 h-px ${safeAgents[key].status === 'done' ? 'bg-neon-green/30' : 'bg-white/[0.06]'}`} />}
                 </React.Fragment>
               ))}
             </div>
@@ -267,7 +277,7 @@ export default function MultiAgentPanel({
               <AgentLane
                 key={key}
                 name={key}
-                agent={agents[key]}
+                agent={safeAgents[key]}
                 isActive={activeAgent === key}
               />
             ))}
