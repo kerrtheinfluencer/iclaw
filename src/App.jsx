@@ -178,14 +178,26 @@ export default function App() {
         isOpen={multiAgentOpen} onClose={() => setMultiAgentOpen(false)}
         isRunning={multiAgent.isRunning} agents={multiAgent.agents}
         files={multiAgent.files} activeAgent={multiAgent.activeAgent}
-        onRun={(task) => { const eng = llm.activeEngine || 'gemini'; const key = agentKeys[eng] || agentApiKey; multiAgent.runMultiAgent(task, key, eng, llm.activeModel || 'gemini-2.5-flash', handleInject, handlePreview); }}
+        onRun={(task) => {
+              const eng = llm.activeEngine || 'gemini';
+              const key = agentKeys[eng] || agentApiKey;
+              const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free' };
+              const model = llm.activeModel || defaultModels[eng] || 'gemini-2.5-flash';
+              multiAgent.runMultiAgent(task, key, eng, model, handleInject, handlePreview);
+            }}
         onStop={multiAgent.stopMultiAgent} onClear={multiAgent.clearMultiAgent}
         apiKey={agentKeys[llm.activeEngine] || agentApiKey} onPreviewFile={handlePreview}
       />
       <AgentPanel
         isOpen={agentOpen} onClose={() => setAgentOpen(false)}
         isRunning={agent.isRunning} steps={agent.steps} files={agent.files}
-        onRun={(task) => { const eng = llm.activeEngine || 'gemini'; const key = agentKeys[eng] || agentApiKey; agent.runAgent(task, key, eng, llm.activeModel || 'gemini-2.5-flash', handleInject, handlePreview); }}
+        onRun={(task) => {
+              const eng = llm.activeEngine || 'gemini';
+              const key = agentKeys[eng] || agentApiKey;
+              const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free' };
+              const model = llm.activeModel || defaultModels[eng] || 'gemini-2.5-flash';
+              agent.runAgent(task, key, eng, model, handleInject, handlePreview);
+            }}
         onStop={agent.stopAgent} onClear={agent.clearAgent}
         apiKey={agentKeys[llm.activeEngine] || agentApiKey} activeModel={llm.activeModel}
         onPreviewFile={handlePreview}
