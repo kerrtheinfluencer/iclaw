@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Cpu, Wifi, WifiOff, Settings, ChevronDown, Check, Zap, Users } from 'lucide-react';
+import { Cpu, Wifi, WifiOff, Settings, ChevronDown, Check, Zap, Users, BarChart2 } from 'lucide-react';
 
 const engineMeta = {
   gemini: { // Always-on Google Search
@@ -12,9 +12,10 @@ const engineMeta = {
   groq: {
     icon: '⚡', label: 'Groq', color: 'text-orange-400', border: 'border-orange-400/30',
     models: [
-      { id: 'qwen-qwq-32b', label: 'Qwen QwQ 32B', tier: 'Best - Thinking' },
-      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', tier: 'Fast' },
-      { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', label: 'Llama 4 Maverick', tier: 'Latest' },
+      { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B', tier: 'Best · Reasoning' },
+      { id: 'qwen/qwen3-32b', label: 'Qwen 3 32B', tier: 'Code · Thinking' },
+      { id: 'moonshotai/kimi-k2-instruct-0905', label: 'Kimi K2', tier: '256K Context' },
+      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', tier: 'Reliable' },
       { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout', tier: 'Vision' },
       { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B', tier: 'Fastest' },
     ],
@@ -49,7 +50,7 @@ const statusConfig = {
 
 export default function Header({
   llmStatus, projectName, activeEngine, activeModel,
-  onMenuToggle, onSettingsOpen, onSelectModel, onOpenAgent, onOpenMultiAgent,
+  onMenuToggle, onSettingsOpen, onSelectModel, onOpenAgent, onOpenMultiAgent, onOpenRateLimit,
 }) {
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -146,6 +147,11 @@ export default function Header({
             {navigator.onLine ? <Wifi size={12} /> : <WifiOff size={12} />}
           </div>
 
+          <button onClick={onOpenRateLimit}
+            className="p-1.5 rounded-lg hover:bg-neon-cyan/10 active:scale-90 transition-all"
+            title="Rate Limits">
+            <BarChart2 size={16} className="text-neon-cyan/60" />
+          </button>
           <button onClick={onOpenMultiAgent}
             className="p-1.5 rounded-lg hover:bg-purple-400/10 active:scale-90 transition-all"
             title="Multi-Agent Mode">

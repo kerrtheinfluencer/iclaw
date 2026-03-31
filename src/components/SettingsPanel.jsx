@@ -32,9 +32,10 @@ const PROVIDERS = {
     keyPlaceholder: 'gsk_...',
     limits: 'Free: 14400 req/day · Fastest inference',
     models: [
-      { id: 'qwen-qwq-32b', label: 'Qwen QwQ 32B', tier: 'Best - Thinking' },
-      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', tier: 'Fast' },
-      { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', label: 'Llama 4 Maverick', tier: 'Latest' },
+      { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B', tier: 'Best · Reasoning' },
+      { id: 'qwen/qwen3-32b', label: 'Qwen 3 32B', tier: 'Code · Thinking' },
+      { id: 'moonshotai/kimi-k2-instruct-0905', label: 'Kimi K2', tier: '256K Context' },
+      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', tier: 'Reliable' },
       { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout', tier: 'Vision' },
       { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B', tier: 'Fastest' },
     ],
