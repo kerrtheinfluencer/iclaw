@@ -12,10 +12,11 @@ const engineMeta = {
   groq: {
     icon: '⚡', label: 'Groq', color: 'text-orange-400', border: 'border-orange-400/30',
     models: [
-      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', tier: 'Best' },
-      { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B', tier: 'Fastest' },
+      { id: 'qwen-qwq-32b', label: 'Qwen QwQ 32B', tier: 'Best - Thinking' },
+      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B', tier: 'Fast' },
+      { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', label: 'Llama 4 Maverick', tier: 'Latest' },
       { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout', tier: 'Vision' },
-      { id: 'qwen-qwq-32b', label: 'Qwen QwQ 32B', tier: 'Thinking' },
+      { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B', tier: 'Fastest' },
     ],
   },
   openrouter: {
