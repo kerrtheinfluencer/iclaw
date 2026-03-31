@@ -1,3 +1,4 @@
+import { getSetting } from '../utils/db.js';
 /**
  * iclaw Multi-Agent System
  * Three specialized agents working in sequence:
@@ -343,7 +344,23 @@ Your output is the final shipped product. Make it exceptional.`;
 
   // ── MAIN ORCHESTRATOR ────────────────────────────────────────────
   const runMultiAgent = useCallback(async (task, apiKey, engine = 'gemini', model = 'gemini-2.5-flash', onFileWrite, onPreview) => {
-    if (!apiKey) return;
+    // Resolve key from DB if not passed
+    let resolvedKey = apiKey;
+    let resolvedEngine = engine;
+    if (!resolvedKey) {
+      for (const p of ['groq', 'gemini', 'openrouter']) {
+        const k = await getSetting(`key_${p}`, '');
+        if (k) { resolvedKey = k; resolvedEngine = p; break; }
+      }
+    }
+    if (!resolvedKey) return;
+    apiKey = resolvedKey;
+    engine = resolvedEngine;
+    // Fix model for engine
+    const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free' };
+    if (!model || model === 'gemini-2.5-flash' && engine !== 'gemini') {
+      model = defaultModels[engine];
+    }
     setIsRunning(true);
     setFiles({});
     abortRef.current = false;

@@ -1,3 +1,4 @@
+import { getSetting } from '../utils/db.js';
 /**
  * iclaw Agent — Browser-side agentic loop
  * Tools: write_file, read_file, web_search, run_code, finish
@@ -97,6 +98,63 @@ async function browserSearch(query) {
   return 'No results found.';
 }
 
+
+// Multi-provider LLM call for agents
+async function callProvider(apiKey, engine, model, systemPrompt, messages) {
+  try {
+    if (engine === 'groq') {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: model || 'llama-3.3-70b-versatile',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messages.map(({ role, content }) => ({ role, content })),
+          ],
+          temperature: 0.2, max_tokens: 4096,
+        }),
+      });
+      if (!res.ok) return `__ERROR__API error: ${res.status}: ${(await res.text()).slice(0,150)}`;
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || '';
+    }
+    if (engine === 'openrouter') {
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'X-Title': 'iclaw' },
+        body: JSON.stringify({
+          model: model || 'mistralai/mistral-7b-instruct:free',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...messages.map(({ role, content }) => ({ role, content })),
+          ],
+          temperature: 0.2, max_tokens: 4096,
+        }),
+      });
+      if (!res.ok) return `__ERROR__API error: ${res.status}: ${(await res.text()).slice(0,150)}`;
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || '';
+    }
+    // Default: Gemini
+    const geminiModel = model || 'gemini-2.5-flash';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
+    const contents = [
+      { role: 'user', parts: [{ text: systemPrompt }] },
+      { role: 'model', parts: [{ text: 'Understood.' }] },
+      ...messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+    ];
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents, generationConfig: { temperature: 0.2, maxOutputTokens: 4096 } }),
+    });
+    if (!res.ok) return `__ERROR__API error: ${res.status}: ${(await res.text()).slice(0,150)}`;
+    const data = await res.json();
+    return data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+  } catch(e) { return `__ERROR__${e.message}`; }
+}
+
 export function useAgent() {
   const [isRunning, setIsRunning] = useState(false);
   const [steps, setSteps] = useState([]);
@@ -165,36 +223,60 @@ export function useAgent() {
   }, [files]);
 
   // Main agent loop
-  const runAgent = useCallback(async (task, apiKey, model = 'gemini-2.5-flash', onFileWrite, onPreview) => {
+  const runAgent = useCallback(async (task, apiKey, engine = 'gemini', model = 'gemini-2.5-flash', onFileWrite, onPreview) => {
+    // If no key provided, try to read from DB
+    let resolvedKey = apiKey;
+    let resolvedEngine = engine;
+    if (!resolvedKey) {
+      for (const p of ['groq', 'gemini', 'openrouter']) {
+        const k = await getSetting(`key_${p}`, '');
+        if (k) { resolvedKey = k; resolvedEngine = p; break; }
+      }
+    }
+    apiKey = resolvedKey;
+    engine = resolvedEngine;
     setIsRunning(true);
     setSteps([]);
     setFiles({});
     abortRef.current = false;
 
-    const AGENT_SYSTEM = `You are iclaw, an autonomous coding agent. You complete tasks step by step using tools.
+    const AGENT_SYSTEM = `You are iclaw, an elite autonomous coding agent built by a world-class engineering team. You produce professional, portfolio-worthy code.
 
-Available tools (respond with JSON tool calls):
+Available tools (respond with JSON tool calls ONLY):
 - write_file(path, content) — write code to a file
 - read_file(path) — read a file you wrote
 - list_files() — list all written files
-- web_search(query) — search the web for info
+- web_search(query) — search the web for current info, libraries, APIs
 - run_code(code, language) — execute JS/HTML and see console output
 - finish(summary) — call when task is complete
 
-RULES:
-1. Always respond with a JSON tool call in this exact format:
-{"tool":"tool_name","args":{"param":"value"},"thought":"why you're doing this"}
-2. After writing all files, call finish() with a summary
-3. For web apps: write a complete index.html first, then test it with run_code
-4. Fix errors automatically — read the error, fix the code, run again
-5. Max ${MAX_STEPS} steps then auto-finish
-6. Be efficient — don't repeat steps unnecessarily`;
+TOOL CALL FORMAT (strict JSON, no markdown around it):
+{"tool":"tool_name","args":{"param":"value"},"thought":"why you are doing this"}
+
+CODE QUALITY STANDARDS — non-negotiable:
+- Zero placeholders or TODOs — every line is real, working code
+- CSS must have: smooth transitions, hover/focus/active states, animations
+- Use CSS custom properties for colors and spacing
+- Mobile-first responsive design
+- Proper error handling and input validation
+- Semantic HTML with ARIA labels
+- Use requestAnimationFrame for animations, never setTimeout
+- CSS Grid/Flexbox for layouts
+- Glassmorphism, gradients, shadows for visual depth
+
+WORKFLOW:
+1. web_search if you need current info, library docs, or inspiration
+2. write_file for each file with complete production code
+3. run_code to test — fix any errors automatically
+4. finish() with summary of what was built
+
+Max ${MAX_STEPS} steps. Be efficient but never sacrifice quality.`;
 
     const messages = [
       { role: 'user', content: `Task: ${task}\n\nStart by planning, then execute step by step using tools.` }
     ];
 
-    addStep({ type: 'plan', status: 'running', label: 'Planning task...', thought: '' });
+    addStep({ type: 'plan', status: 'done', label: 'Starting agent loop', thought: '' });
 
     let stepCount = 0;
 
@@ -202,34 +284,12 @@ RULES:
       stepCount++;
 
       try {
-        // Call Gemini
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-        const contents = [
-          { role: 'user', parts: [{ text: AGENT_SYSTEM }] },
-          { role: 'model', parts: [{ text: 'Understood. I will execute tasks step by step using JSON tool calls.' }] },
-          ...messages.map(m => ({
-            role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }],
-          })),
-        ];
-
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents,
-            generationConfig: { temperature: 0.2, maxOutputTokens: 4096 },
-          }),
-        });
-
-        if (!res.ok) {
-          const err = await res.text();
-          addStep({ type: 'error', status: 'error', label: `API error: ${res.status}`, detail: err.slice(0, 200) });
+        // Call active provider
+        const rawText = await callProvider(apiKey, engine, model, AGENT_SYSTEM, messages);
+        if (rawText.startsWith('__ERROR__')) {
+          addStep({ type: 'error', status: 'error', label: rawText.replace('__ERROR__',''), detail: '' });
           break;
         }
-
-        const data = await res.json();
-        const rawText = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
 
         // Parse JSON tool call from response
         let toolCall = null;
