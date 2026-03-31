@@ -1,73 +1,82 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { getSetting, setSetting } from '../utils/db.js';
-
-const SYSTEM_PROMPT = `You are a helpful coding assistant. When creating web projects:
-
-1. For simple demos: Provide a single HTML file with inline CSS and JavaScript
-2. For complex projects: Separate into HTML, CSS, and JS files with clear filenames
-3. Always use code blocks with filenames like:
-   \`\`\`html
-   // index.html
-   <code here>
-   \`\`\`
-4. For 3D graphics, include Three.js from CDN
-5. Make sure all file references match the filenames you provide`;
-
-const PROVIDERS = {
-  gemini: { name: 'Google Gemini', keyPrefix: 'key_gemini', defaultModel: 'gemini-2.5-flash' },
-  groq: { name: 'Groq', keyPrefix: 'key_groq', defaultModel: 'llama-3.3-70b-versatile' },
-  openrouter: { name: 'OpenRouter', keyPrefix: 'key_openrouter', defaultModel: 'mistralai/mistral-7b-instruct:free' }
-};
 
 export function useLLM() {
+  const workerRef = useRef(null);
   const [status, setStatus] = useState('idle');
   const [statusMessage, setStatusMessage] = useState('');
-  const [activeEngine, setActiveEngine] = useState(null);
-  const [activeModel, setActiveModel] = useState(null);
   const [loadProgress, setLoadProgress] = useState(0);
   const [loadText, setLoadText] = useState('');
-  const [webSearchOn, setWebSearchOn] = useState(false);
+  const [activeEngine, setActiveEngine] = useState(null);
+  const [activeModel, setActiveModel] = useState(null);
+  const [needsKey, setNeedsKey] = useState(null);
+  const [webSearchOn, setWebSearchOn] = useState(true);
   const [isSearching, setIsSearching] = useState(false);
-  
-  const workerRef = useRef(null);
   const streamCallbackRef = useRef(null);
-  const doneCallbackRef = useRef(null);
+  const completionCallbackRef = useRef(null);
 
   useEffect(() => {
-    workerRef.current = new Worker(new URL('../workers/llm_worker.js', import.meta.url), { type: 'module' });
+    workerRef.current = new Worker(
+      new URL('../workers/llm_worker.js', import.meta.url),
+      { type: 'module' }
+    );
     workerRef.current.onmessage = (e) => {
-      const { type, payload } = e.data;
+      const { type, ...payload } = e.data;
       switch (type) {
-        case 'status': 
-          setStatus(payload.status); 
-          setStatusMessage(payload.message || ''); 
+        case 'status':
+          if (payload.status === 'needsKey') {
+            setNeedsKey(payload.provider);
+            setStatus('needsKey');
+          } else {
+            setNeedsKey(null);
+            setStatus(payload.status);
+          }
+          setStatusMessage(payload.message);
           break;
-        case 'progress': 
-          setLoadProgress(payload.progress); 
-          setLoadText(payload.text || ''); 
+        case 'loadProgress':
+          setLoadProgress(payload.progress);
+          setLoadText(payload.text);
           break;
-        case 'stream': 
-          streamCallbackRef.current?.(payload.delta, payload.fullText); 
+        case 'streamStart':
+          setStatus('generating');
           break;
-        case 'done': 
-          setStatus('ready'); 
-          doneCallbackRef.current?.(payload.fullText, payload.stats, payload.error); 
+        case 'streamChunk':
+          streamCallbackRef.current?.(payload.delta, payload.fullText);
           break;
-        case 'searchStatus': 
-          setIsSearching(payload.isSearching); 
+        case 'streamEnd':
+          setStatus('ready');
+          if (payload.stats?.engine) setActiveEngine(payload.stats.engine);
+          if (payload.stats?.model) setActiveModel(payload.stats.model);
+          completionCallbackRef.current?.(payload.fullText, payload.stats);
+          break;
+        case 'modelChanged':
+          setActiveModel(payload.model);
+          break;
+        case 'searchStatus':
+          setIsSearching(payload.searching);
+          break;
+        case 'searchToggled':
+          setWebSearchOn(payload.enabled);
+          break;
+        case 'error':
+          setStatus((prev) => prev === 'generating' ? 'ready' : 'error');
+          setStatusMessage(payload.message);
+          completionCallbackRef.current?.(null, null, payload.message);
           break;
       }
     };
     return () => workerRef.current?.terminate();
   }, []);
 
-  const initModel = useCallback(async (engine, apiKey) => {
-    if (!apiKey) return;
-    setStatus('loading');
-    setActiveEngine(engine);
-    setActiveModel(PROVIDERS[engine].defaultModel);
-    workerRef.current?.postMessage({ type: 'init', engine, apiKey, model: PROVIDERS[engine].defaultModel });
-    await setSetting(PROVIDERS[engine].keyPrefix, apiKey);
+  const initModel = useCallback((engineId = 'gemini') => {
+    setActiveEngine(engineId);
+    workerRef.current?.postMessage({ type: 'init', engine: engineId });
+  }, []);
+
+  const setKey = useCallback((provider, key) => {
+    workerRef.current?.postMessage({ type: 'setKey', provider, key });
+    setActiveEngine(provider);
+    setNeedsKey(null);
+    setStatus('ready');
   }, []);
 
   const selectModel = useCallback((model) => {
@@ -75,48 +84,37 @@ export function useLLM() {
     workerRef.current?.postMessage({ type: 'setModel', model });
   }, []);
 
-  const setKey = useCallback((engine, key) => {
-    if (key) setSetting(PROVIDERS[engine].keyPrefix, key);
-  }, []);
-
-  const toggleSearch = useCallback((on) => {
-    setWebSearchOn(on);
-    workerRef.current?.postMessage({ type: 'toggleSearch', on });
-  }, []);
-
-  const generate = useCallback(async (messages, ragContext = [], onStream, onDone, attachments = []) => {
-    if (!activeEngine) { onDone?.(null, null, 'No engine selected'); return; }
-    
-    setStatus('generating');
-    streamCallbackRef.current = onStream;
-    doneCallbackRef.current = onDone;
-    
-    workerRef.current?.postMessage({ 
-      type: 'generate', 
-      messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
-      ragContext,
-      attachments 
-    });
-  }, [activeEngine, activeModel]);
+  const generate = useCallback(
+    (messages, ragContext = [], onStream, onComplete, attachments = []) => {
+      streamCallbackRef.current = onStream;
+      completionCallbackRef.current = onComplete;
+      const requestId = Date.now().toString(36);
+      workerRef.current?.postMessage({
+        type: 'inference',
+        messages,
+        requestId,
+        ragContext,
+        model: activeModel,
+        attachments,
+      });
+      return requestId;
+    },
+    [activeModel]
+  );
 
   const resetChat = useCallback(() => {
     workerRef.current?.postMessage({ type: 'reset' });
   }, []);
 
-  return { 
-    status, 
-    statusMessage, 
-    activeEngine, 
-    activeModel, 
-    loadProgress, 
-    loadText,
-    webSearchOn,
-    isSearching,
-    initModel, 
-    selectModel, 
-    setKey, 
-    generate, 
-    resetChat,
-    toggleSearch 
+  const toggleSearch = useCallback((enabled) => {
+    workerRef.current?.postMessage({ type: 'toggleSearch', enabled });
+    setWebSearchOn(enabled);
+  }, []);
+
+  return {
+    status, statusMessage, loadProgress, loadText,
+    activeEngine, activeModel, needsKey,
+    webSearchOn, isSearching,
+    initModel, setKey, selectModel, generate, resetChat, toggleSearch,
   };
 }
