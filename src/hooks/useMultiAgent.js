@@ -28,25 +28,48 @@ async function browserSearch(query) {
   return null;
 }
 
-async function callGemini(apiKey, model, systemPrompt, messages, temperature = 0.3) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+async function callProvider(apiKey, engine, model, systemPrompt, messages, temperature = 0.3) {
+  if (engine === 'groq') {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: model || 'llama-3.3-70b-versatile',
+        messages: [{ role: 'system', content: systemPrompt }, ...messages.map(({role,content})=>({role,content}))],
+        temperature, max_tokens: 8192,
+      }),
+    });
+    if (!res.ok) throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0,200)}`);
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || '';
+  }
+  if (engine === 'openrouter') {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'X-Title': 'iclaw' },
+      body: JSON.stringify({
+        model: model || 'mistralai/mistral-7b-instruct:free',
+        messages: [{ role: 'system', content: systemPrompt }, ...messages.map(({role,content})=>({role,content}))],
+        temperature, max_tokens: 8192,
+      }),
+    });
+    if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0,200)}`);
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || '';
+  }
+  // Gemini default
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-2.5-flash'}:generateContent?key=${apiKey}`;
   const contents = [
     { role: 'user', parts: [{ text: systemPrompt }] },
     { role: 'model', parts: [{ text: 'Understood.' }] },
-    ...messages.map(m => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    })),
+    ...messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
   ];
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents,
-      generationConfig: { temperature, maxOutputTokens: 8192 },
-    }),
+    body: JSON.stringify({ contents, generationConfig: { temperature, maxOutputTokens: 8192 } }),
   });
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0,200)}`);
   const data = await res.json();
   return data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
 }
@@ -115,22 +138,27 @@ export function useMultiAgent() {
   };
 
   // ── AGENT 1: PLANNER ─────────────────────────────────────────────
-  const runPlanner = async (task, apiKey, model) => {
+  const runPlanner = async (task, apiKey, engine, model) => {
     setActiveAgent('planner');
     updateAgent('planner', { status: 'running', steps: [], output: null });
 
-    const PLANNER_SYSTEM = `You are the Planner agent in a multi-agent coding system.
-Your job: Research the task, then produce a detailed technical specification.
+    const PLANNER_SYSTEM = `You are a Senior Solutions Architect and the Planner agent in an elite multi-agent coding system.
+Your job: Deeply research the task, then produce an exhaustive technical specification that leaves nothing to interpretation.
 
-Output a structured spec with:
-1. PROJECT OVERVIEW — what we're building and why
-2. TECH STACK — exact technologies, libraries, CDN links needed
-3. FILE STRUCTURE — list every file to create with its purpose
-4. FEATURES — detailed list of all features to implement
-5. UI/UX NOTES — design decisions, color scheme, layout
-6. IMPLEMENTATION NOTES — key technical decisions, patterns to use
+Think like a staff engineer at a top tech company. Your spec must cover:
 
-Be specific and thorough. The Coder agent will implement exactly what you specify.`;
+1. PROJECT OVERVIEW — vision, user experience goals, what makes this special
+2. TECH STACK — exact CDN URLs, library versions, why each was chosen
+3. FILE STRUCTURE — every file with its exact purpose and key exports
+4. FEATURES — comprehensive feature list with edge cases and interactions
+5. UI/UX SPEC — exact color palette (hex codes), typography, spacing, animations, micro-interactions, responsive breakpoints
+6. DATA MODEL — exact data structures, state shape, localStorage schema
+7. COMPONENT ARCHITECTURE — how pieces connect, event flow, state management
+8. ADVANCED FEATURES — animations, transitions, keyboard shortcuts, accessibility, performance optimizations
+9. CODE PATTERNS — specific patterns to use (e.g. "use requestAnimationFrame for animations", "use CSS custom properties for theming")
+
+QUALITY BAR: The output must be indistinguishable from a professional agency deliverable.
+Be exhaustive. The Coder agent implements EXACTLY what you specify — if you don't spec it, it won't exist.`;
 
     addAgentStep('planner', { type: 'think', status: 'running', label: 'Analyzing task...' });
 
@@ -146,28 +174,51 @@ Be specific and thorough. The Coder agent will implement exactly what you specif
       content: `Task: ${task}${searchResults ? `\n\nResearch context:\n${searchResults}` : ''}\n\nWrite a complete technical specification.`,
     }];
 
-    const spec = await callGemini(apiKey, model, PLANNER_SYSTEM, messages, 0.4);
+    const spec = await callProvider(apiKey, engine, model, PLANNER_SYSTEM, messages, 0.4);
     updateLastAgentStep('planner', { status: 'done', detail: spec.slice(0, 200) + '...' });
     updateAgent('planner', { status: 'done', output: spec });
     return spec;
   };
 
   // ── AGENT 2: CODER ───────────────────────────────────────────────
-  const runCoder = async (task, spec, apiKey, model) => {
+  const runCoder = async (task, spec, apiKey, engine, model) => {
     setActiveAgent('coder');
     updateAgent('coder', { status: 'running', steps: [], output: null });
 
-    const CODER_SYSTEM = `You are the Coder agent in a multi-agent coding system.
-You receive a technical spec and implement it completely.
+    const CODER_SYSTEM = `You are a world-class Senior Frontend Engineer and the Coder agent in an elite multi-agent system.
+You receive a technical spec and implement it to the highest professional standard.
 
-RULES:
-- Write complete, production-ready code — no placeholders or TODOs
-- Every file must start with a comment showing the filename: // filename.ext
-- Use modern best practices and the exact tech stack from the spec
-- For HTML apps: write one complete self-contained index.html unless spec says otherwise
-- Include all CSS inline or in separate files as spec requires
-- Make it actually work — test-quality code
-- Use CDN links for any libraries (no npm imports in browser code)`;
+MANDATORY STANDARDS:
+- Zero placeholders, zero TODOs, zero "add your logic here" — every line must be real, working code
+- Every file starts with: // filename.ext
+- Use CDN links for all libraries — no npm imports
+- CSS must include: smooth transitions, hover states, focus states, loading states, empty states
+- JavaScript must include: error handling, input validation, edge case handling
+- Animations must use: CSS transitions/keyframes or requestAnimationFrame — never setTimeout for animation
+- Use CSS custom properties (variables) for all colors and spacing
+- Mobile-first responsive design unless spec says desktop-only
+- Semantic HTML with proper ARIA labels for accessibility
+
+ADVANCED TECHNIQUES TO USE:
+- CSS Grid and Flexbox for layouts (no floats)
+- Intersection Observer for scroll animations
+- Local Storage with error handling and JSON validation
+- Debounced input handlers for search/filter
+- Keyboard navigation support
+- Smooth scroll behavior
+- CSS backdrop-filter for glassmorphism effects
+- CSS clip-path for creative shapes
+- Web Animations API or CSS keyframes for complex animations
+- Custom scrollbars via CSS
+
+CODE QUALITY:
+- Functions should be small, single-purpose, well-named
+- Use const/let appropriately, avoid var
+- Event delegation for dynamic elements
+- Clean separation of data, logic, and rendering
+- Proper use of data attributes for DOM state
+
+The Reviewer agent will reject anything that looks amateur. Make it portfolio-worthy.`;
 
     addAgentStep('coder', { type: 'plan', status: 'running', label: 'Reading spec...' });
     await new Promise(r => setTimeout(r, 500)); // brief pause for UX
@@ -181,7 +232,7 @@ RULES:
       content: `Original task: ${task}\n\nTechnical Specification:\n${spec}\n\nImplement the complete project. Write ALL files with full code. Start each file with a comment showing its filename.`,
     }];
 
-    const implementation = await callGemini(apiKey, model, CODER_SYSTEM, messages, 0.2);
+    const implementation = await callProvider(apiKey, engine, model, CODER_SYSTEM, messages, 0.2);
 
     // Extract files from response
     const extractedFiles = extractFiles(implementation);
@@ -207,22 +258,51 @@ RULES:
   };
 
   // ── AGENT 3: REVIEWER ────────────────────────────────────────────
-  const runReviewer = async (task, spec, files, apiKey, model) => {
+  const runReviewer = async (task, spec, files, apiKey, engine, model) => {
     setActiveAgent('reviewer');
     updateAgent('reviewer', { status: 'running', steps: [], output: null });
 
-    const REVIEWER_SYSTEM = `You are the Reviewer agent in a multi-agent coding system.
-You audit code written by the Coder agent and improve it.
+    const REVIEWER_SYSTEM = `You are a Principal Engineer and the Reviewer agent in an elite multi-agent system.
+You have extremely high standards. You audit and elevate the Coder's work.
 
-Your review must cover:
-1. BUG CHECK — identify any bugs, errors, or broken logic
-2. COMPLETENESS — does it match the spec? Missing features?
-3. CODE QUALITY — best practices, efficiency, readability
-4. UX QUALITY — does the UI look good and work well?
-5. FIXES — rewrite any files that have issues (full file rewrites only)
+REVIEW CHECKLIST — reject and rewrite if ANY of these fail:
 
-If files need fixing, rewrite them completely with // filename.ext at the top.
-If everything looks good, say so and provide a final summary.`;
+BUGS & CORRECTNESS:
+- All functions are called correctly and return expected values
+- Event listeners are attached to correct elements
+- No undefined variables or missing DOM elements
+- Async operations handled properly
+- No infinite loops or memory leaks
+
+COMPLETENESS:
+- Every feature from the spec is implemented
+- All interactive elements actually work
+- Empty states handled (no data, loading, errors)
+- All edge cases covered
+
+UI/UX QUALITY (rewrite if subpar):
+- Animations are smooth (60fps, using transform/opacity not layout properties)
+- Color contrast meets WCAG AA standard
+- Hover/focus/active states on all interactive elements
+- Loading states for any async operations
+- Consistent spacing and alignment
+- Typography hierarchy is clear
+- Mobile layout works properly
+
+CODE QUALITY:
+- No redundant code or copy-paste patterns
+- Proper error handling with user-visible feedback
+- Performance optimized (no unnecessary repaints, event delegation used)
+- Clean, readable variable and function names
+
+ELEVATION — always improve:
+- Add one delightful micro-interaction the Coder missed
+- Improve the visual polish of at least one component
+- Add keyboard shortcut support if missing
+- Ensure smooth page load (no flash of unstyled content)
+
+If rewriting files, rewrite the COMPLETE file — never partial rewrites.
+Your output is the final shipped product. Make it exceptional.`;
 
     addAgentStep('reviewer', { type: 'think', status: 'running', label: 'Auditing code...' });
 
@@ -235,7 +315,7 @@ If everything looks good, say so and provide a final summary.`;
       content: `Original task: ${task}\n\nSpec:\n${spec.slice(0, 1000)}...\n\nCode to review:\n${fileContents}\n\nReview this code thoroughly and fix any issues.`,
     }];
 
-    const review = await callGemini(apiKey, model, REVIEWER_SYSTEM, messages, 0.3);
+    const review = await callProvider(apiKey, engine, model, REVIEWER_SYSTEM, messages, 0.3);
     updateLastAgentStep('reviewer', { status: 'done', detail: 'Review complete' });
 
     // Extract any fixed files
@@ -262,7 +342,7 @@ If everything looks good, say so and provide a final summary.`;
   };
 
   // ── MAIN ORCHESTRATOR ────────────────────────────────────────────
-  const runMultiAgent = useCallback(async (task, apiKey, model = 'gemini-2.5-flash', onFileWrite, onPreview) => {
+  const runMultiAgent = useCallback(async (task, apiKey, engine = 'gemini', model = 'gemini-2.5-flash', onFileWrite, onPreview) => {
     if (!apiKey) return;
     setIsRunning(true);
     setFiles({});
@@ -278,11 +358,11 @@ If everything looks good, say so and provide a final summary.`;
     try {
       // Phase 1: Plan
       if (abortRef.current) return;
-      const spec = await runPlanner(task, apiKey, model);
+      const spec = await runPlanner(task, apiKey, engine, model);
 
       // Phase 2: Code
       if (abortRef.current) return;
-      const { files: writtenFiles } = await runCoder(task, spec, apiKey, model);
+      const { files: writtenFiles } = await runCoder(task, spec, apiKey, engine, model);
 
       // Notify parent of written files
       for (const [path, content] of Object.entries(writtenFiles)) {
@@ -292,7 +372,7 @@ If everything looks good, say so and provide a final summary.`;
 
       // Phase 3: Review
       if (abortRef.current) return;
-      const { fixedFiles } = await runReviewer(task, spec, writtenFiles, apiKey, model);
+      const { fixedFiles } = await runReviewer(task, spec, writtenFiles, apiKey, engine, model);
 
       // Notify parent of any fixes
       for (const [path, content] of Object.entries(fixedFiles)) {
@@ -317,13 +397,17 @@ If everything looks good, say so and provide a final summary.`;
   }, []);
 
   const clearMultiAgent = useCallback(() => {
+    abortRef.current = true;
+    setIsRunning(false);
+    setActiveAgent(null);
+    setFiles({});
     setAgents({
       planner: { status: 'idle', steps: [], output: null },
       coder:   { status: 'idle', steps: [], output: null },
       reviewer:{ status: 'idle', steps: [], output: null },
     });
-    setFiles({});
-    setActiveAgent(null);
+    // Allow new runs after clear
+    setTimeout(() => { abortRef.current = false; }, 100);
   }, []);
 
   return { isRunning, agents, files, activeAgent, runMultiAgent, stopMultiAgent, clearMultiAgent };
