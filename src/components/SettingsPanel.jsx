@@ -1,36 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import {
-  X, Cpu, Check, Eye, EyeOff,
-  ExternalLink, HardDrive,
-} from 'lucide-react';
-import { getSetting, setSetting, getStorageEstimate } from '../utils/db.js';
+import React, { useState, useRef, useEffect } from 'react';
+import { Cpu, Wifi, WifiOff, Settings, ChevronDown, Check, Zap, Users, BarChart2 } from 'lucide-react';
 
-const PROVIDERS = {
-  gemini: {
-    name: 'Google Gemini',
-    icon: '✦',
-    color: 'text-blue-400',
-    borderColor: 'border-blue-400/30',
-    bgColor: 'bg-blue-400/5',
-    tagColor: 'text-blue-400 bg-blue-400/10',
-    keyUrl: 'https://aistudio.google.com/apikey',
-    keyPlaceholder: 'AIza...',
-    limits: '🌐 Always-on Google Search · 1500 req/day free',
+const engineMeta = {
+  gemini: { // Always-on Google Search
+    icon: '✦', label: 'Gemini', color: 'text-blue-400', border: 'border-blue-400/30',
     models: [
       { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'Default + Internet' },
       { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'Most Powerful' },
     ],
   },
   groq: {
-    name: 'Groq',
-    icon: '⚡',
-    color: 'text-orange-400',
-    borderColor: 'border-orange-400/30',
-    bgColor: 'bg-orange-400/5',
-    tagColor: 'text-orange-400 bg-orange-400/10',
-    keyUrl: 'https://console.groq.com/keys',
-    keyPlaceholder: 'gsk_...',
-    limits: 'Free: 14400 req/day · Fastest inference',
+    icon: '⚡', label: 'Groq', color: 'text-orange-400', border: 'border-orange-400/30',
     models: [
       { id: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B', tier: 'Best · Reasoning' },
       { id: 'qwen/qwen3-32b', label: 'Qwen 3 32B', tier: 'Code · Thinking' },
@@ -41,15 +21,7 @@ const PROVIDERS = {
     ],
   },
   openrouter: {
-    name: 'OpenRouter',
-    icon: '◈',
-    color: 'text-purple-400',
-    borderColor: 'border-purple-400/30',
-    bgColor: 'bg-purple-400/5',
-    tagColor: 'text-purple-400 bg-purple-400/10',
-    keyUrl: 'https://openrouter.ai/keys',
-    keyPlaceholder: 'sk-or-...',
-    limits: 'Free models · Must enable free endpoints in guardrails',
+    icon: '◈', label: 'Router', color: 'text-purple-400', border: 'border-purple-400/30',
     models: [
       { id: 'mistralai/mistral-7b-instruct:free', label: 'Mistral 7B', tier: 'Most Reliable' },
       { id: 'microsoft/phi-3-mini-128k-instruct:free', label: 'Phi-3 Mini 128K', tier: 'Fast' },
@@ -59,172 +31,142 @@ const PROVIDERS = {
       { id: 'deepseek/deepseek-r1:free', label: 'DeepSeek R1', tier: 'Thinking' },
     ],
   },
+  wasm: {
+    icon: null, label: 'WASM', color: 'text-neon-green', border: 'border-neon-green/30',
+    models: [
+      { id: 'qwen2.5-coder-1.5b', label: 'Qwen 1.5B', tier: 'Offline' },
+    ],
+  },
 };
 
-export default function SettingsPanel({
-  isOpen, onClose, onSelectEngine, onSetKey,
-  activeEngine, llmStatus, activeModel, onSelectModel,
+const statusConfig = {
+  idle:       { dot: 'bg-steel-400',                           label: 'Offline'  },
+  loading:    { dot: 'bg-neon-amber animate-pulse',            label: 'Loading'  },
+  ready:      { dot: 'bg-neon-green shadow-[0_0_6px_#00ff88]', label: 'Ready'   },
+  generating: { dot: 'bg-neon-cyan animate-pulse',             label: 'Thinking' },
+  error:      { dot: 'bg-neon-pink shadow-[0_0_6px_#ff006e]', label: 'Error'    },
+  needsKey:   { dot: 'bg-neon-amber',                          label: 'Key needed' },
+};
+
+export default function Header({
+  llmStatus, projectName, activeEngine, activeModel,
+  onMenuToggle, onSettingsOpen, onSelectModel, onOpenAgent, onOpenMultiAgent, onOpenRateLimit,
 }) {
-  const [keys, setKeys] = useState({ gemini: '', groq: '', openrouter: '' });
-  const [showKeys, setShowKeys] = useState({});
-  const [storage, setStorage] = useState(null);
-  const [savedProvider, setSavedProvider] = useState(null);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const menuRef = useRef(null);
 
+  const s = statusConfig[llmStatus] || statusConfig.idle;
+  const eng = activeEngine ? engineMeta[activeEngine] : null;
+  const models = eng?.models || [];
+  const currentModel = models.find((m) => m.id === activeModel);
+  const modelLabel = currentModel?.label || (activeModel ? activeModel.split('/').pop().replace(':free','') : null);
+
+  // Close on outside click
   useEffect(() => {
-    if (isOpen) {
-      Promise.all([
-        getSetting('key_gemini', ''),
-        getSetting('key_groq', ''),
-        getSetting('key_openrouter', ''),
-      ]).then(([g, gr, or]) => setKeys({ gemini: g, groq: gr, openrouter: or }));
-      getStorageEstimate().then(setStorage);
-    }
-  }, [isOpen]);
-
-  const handleSaveKey = async (provider) => {
-    const key = keys[provider];
-    await setSetting(`key_${provider}`, key);
-    onSetKey(provider, key);
-    setSavedProvider(provider);
-    setTimeout(() => setSavedProvider(null), 2000);
-  };
-
-  if (!isOpen) return null;
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setModelMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler);
+    return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('touchstart', handler); };
+  }, []);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-void-950 safe-top safe-bottom">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 glass-panel">
-        <h2 className="font-display text-sm font-semibold tracking-wider text-steel-100">Settings</h2>
-        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/5 active:scale-90">
-          <X size={18} className="text-steel-400" />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neon-green/[0.04] border border-neon-green/15">
-          <span className="text-sm">🆓</span>
-          <p className="text-[11px] text-neon-green/80 font-medium">
-            All engines are 100% free. No credit card required anywhere.
-          </p>
+    <header className="safe-top glass-panel border-b border-white/5 z-40 relative">
+      <div className="flex items-center justify-between px-4 py-3">
+        {/* Left: hamburger + title */}
+        <div className="flex items-center gap-3">
+          <button onClick={onMenuToggle}
+            className="w-8 h-8 flex flex-col items-center justify-center gap-[5px] active:scale-90 transition-transform">
+            <span className="w-5 h-[1.5px] bg-neon-green/70 rounded-full" />
+            <span className="w-4 h-[1.5px] bg-neon-green/50 rounded-full" />
+            <span className="w-3 h-[1.5px] bg-neon-green/30 rounded-full" />
+          </button>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-lg font-bold tracking-[0.15em] bg-gradient-to-r from-neon-green to-neon-cyan bg-clip-text text-transparent">
+              iclaw
+            </h1>
+            {projectName && (
+              <span className="text-[10px] font-mono text-steel-500 truncate max-w-[80px]">/{projectName}</span>
+            )}
+          </div>
         </div>
 
-        {Object.entries(PROVIDERS).map(([id, prov]) => {
-          const isActive = activeEngine === id;
-          const hasKey = !!keys[id];
+        {/* Right: model picker + status + settings */}
+        <div className="flex items-center gap-2">
 
-          return (
-            <section key={id} className={`rounded-xl border p-3 space-y-3 transition-all ${
-              isActive ? prov.borderColor + ' ' + prov.bgColor : 'border-white/[0.06]'
-            }`}>
+          {/* Model switcher — only when engine is active */}
+          {eng && models.length > 0 && (
+            <div className="relative" ref={menuRef}>
               <button
-                onClick={() => { if (hasKey) onSelectEngine(id); }}
-                className="w-full flex items-center justify-between"
+                onClick={() => setModelMenuOpen((v) => !v)}
+                className={`flex items-center gap-1 px-2 py-1 rounded-lg bg-white/[0.03] border ${eng.border} hover:bg-white/[0.06] active:scale-95 transition-all`}
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">{prov.icon}</span>
-                  <div className="text-left">
-                    <span className={`text-sm font-medium ${isActive ? prov.color : 'text-steel-200'}`}>
-                      {prov.name}
-                    </span>
-                    <p className="text-[10px] text-steel-500">{prov.limits}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {hasKey && <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full ${prov.tagColor}`}>Key set</span>}
-                  {isActive && <Check size={14} className={prov.color} />}
-                </div>
+                {eng.icon ? (
+                  <span className="text-[11px]">{eng.icon}</span>
+                ) : (
+                  <Cpu size={10} className={eng.color} />
+                )}
+                <span className={`text-[9px] font-mono ${eng.color} uppercase max-w-[80px] truncate`}>
+                  {modelLabel || eng.label}
+                </span>
+                <ChevronDown size={9} className={`${eng.color} opacity-60 ${modelMenuOpen ? 'rotate-180' : ''} transition-transform`} />
               </button>
 
-              <div className="flex items-center gap-2">
-                <div className="flex-1 relative">
-                  <input
-                    type={showKeys[id] ? 'text' : 'password'}
-                    value={keys[id]}
-                    onChange={(e) => setKeys({ ...keys, [id]: e.target.value })}
-                    placeholder={prov.keyPlaceholder}
-                    className="input-stealth text-xs pr-8 py-2"
-                  />
-                  <button
-                    onClick={() => setShowKeys({ ...showKeys, [id]: !showKeys[id] })}
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1"
-                  >
-                    {showKeys[id] ? <EyeOff size={12} className="text-steel-600" /> : <Eye size={12} className="text-steel-600" />}
-                  </button>
-                </div>
-                <button
-                  onClick={() => handleSaveKey(id)}
-                  disabled={!keys[id].trim()}
-                  className={`px-3 py-2 rounded-lg text-[10px] font-mono font-medium transition-all active:scale-95
-                    disabled:opacity-20 ${savedProvider === id ? 'bg-neon-green/15 text-neon-green' : 'bg-white/5 text-steel-300'}`}
-                >
-                  {savedProvider === id ? '✓' : 'Save'}
-                </button>
-              </div>
-
-              <a
-                href={prov.keyUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-[10px] text-steel-500 hover:text-steel-300 transition-colors"
-              >
-                <ExternalLink size={10} />
-                Get free API key → {prov.keyUrl.replace('https://', '')}
-              </a>
-
-              {isActive && hasKey && (
-                <div className="space-y-1 pt-1 border-t border-white/[0.04]">
-                  <span className="text-[10px] font-mono text-steel-500 uppercase">Model</span>
-                  {prov.models.map((m) => (
+              {/* Dropdown */}
+              {modelMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 w-52 rounded-xl border border-white/10 bg-void-950/95 backdrop-blur-xl shadow-xl z-50 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-white/5">
+                    <span className="text-[9px] font-mono text-steel-500 uppercase tracking-wider">Select Model</span>
+                  </div>
+                  {models.map((m) => (
                     <button
                       key={m.id}
-                      onClick={() => onSelectModel(m.id)}
-                      className={`w-full flex items-center justify-between p-2 rounded-lg transition-all active:scale-[0.98]
-                        ${activeModel === m.id ? prov.bgColor + ' ' + prov.borderColor + ' border' : 'hover:bg-white/[0.02]'}`}
+                      onClick={() => { onSelectModel(m.id); setModelMenuOpen(false); }}
+                      className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-white/[0.04] active:bg-white/[0.07] transition-colors"
                     >
-                      <span className={`text-xs ${activeModel === m.id ? prov.color : 'text-steel-300'}`}>{m.label}</span>
-                      <span className="text-[9px] font-mono text-steel-600">{m.tier}</span>
+                      <div className="text-left">
+                        <span className={`text-xs ${activeModel === m.id ? eng.color : 'text-steel-200'}`}>{m.label}</span>
+                        <p className="text-[9px] font-mono text-steel-600">{m.tier}</p>
+                      </div>
+                      {activeModel === m.id && <Check size={12} className={eng.color} />}
                     </button>
                   ))}
                 </div>
               )}
-            </section>
-          );
-        })}
-
-        {/* WASM */}
-        <section className={`rounded-xl border p-3 space-y-2 transition-all ${
-          activeEngine === 'wasm' ? 'border-neon-green/30 bg-neon-green/[0.03]' : 'border-white/[0.06]'
-        }`}>
-          <button onClick={() => onSelectEngine('wasm')} className="w-full flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Cpu size={16} className={activeEngine === 'wasm' ? 'text-neon-green' : 'text-steel-400'} />
-              <div className="text-left">
-                <span className={`text-sm font-medium ${activeEngine === 'wasm' ? 'text-neon-green' : 'text-steel-200'}`}>
-                  Local WASM (Offline)
-                </span>
-                <p className="text-[10px] text-steel-500">Qwen 1.5B · No internet needed · ~900MB</p>
-              </div>
             </div>
-            {activeEngine === 'wasm' && <Check size={14} className="text-neon-green" />}
+          )}
+
+          {/* Status dot */}
+          <div className="flex items-center gap-1.5">
+            <div className={`w-2 h-2 rounded-full ${s.dot}`} />
+            <span className="text-[9px] font-mono text-steel-500 uppercase tracking-wider hidden sm:inline">{s.label}</span>
+          </div>
+
+          <div className="text-steel-600">
+            {navigator.onLine ? <Wifi size={12} /> : <WifiOff size={12} />}
+          </div>
+
+          <button onClick={onOpenRateLimit}
+            className="p-1.5 rounded-lg hover:bg-neon-cyan/10 active:scale-90 transition-all"
+            title="Rate Limits">
+            <BarChart2 size={16} className="text-neon-cyan/60" />
           </button>
-          <p className="text-[10px] text-steel-600 leading-relaxed pl-6">
-            Runs entirely on your device. No API key, no account, no internet.
-          </p>
-        </section>
-
-        {/* OpenRouter note */}
-        <div className="px-3 py-2 rounded-lg bg-neon-amber/[0.04] border border-neon-amber/15">
-          <p className="text-[10px] text-neon-amber/80 leading-relaxed">
-            <strong>OpenRouter users:</strong> Go to openrouter.ai/workspaces/default/guardrails and enable both <em>"free endpoints that may train on inputs"</em> toggles to unlock all free models.
-          </p>
+          <button onClick={onOpenMultiAgent}
+            className="p-1.5 rounded-lg hover:bg-purple-400/10 active:scale-90 transition-all"
+            title="Multi-Agent Mode">
+            <Users size={16} className="text-purple-400/70" />
+          </button>
+          <button onClick={onOpenAgent}
+            className="p-1.5 rounded-lg hover:bg-neon-amber/10 active:scale-90 transition-all"
+            title="Agent Mode">
+            <Zap size={16} className="text-neon-amber/70" />
+          </button>
+          <button onClick={onSettingsOpen} className="p-1.5 rounded-lg hover:bg-white/5 active:scale-90">
+            <Settings size={16} className="text-steel-400" />
+          </button>
         </div>
-
-        <section className="pb-8">
-          <p className="text-[10px] text-steel-600 leading-relaxed">
-            iclaw v1.4 — 100% free AI coding workspace. Keys stored locally in IndexedDB.
-          </p>
-        </section>
       </div>
-    </div>
+    </header>
   );
 }
