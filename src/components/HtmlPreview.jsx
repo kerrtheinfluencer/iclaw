@@ -42,41 +42,44 @@ function processHtml(html) {
       : out;
   }
 
-  // 2. Rewrite ES module bare imports → CDN script tags injected before </head> or </body>
+  // 2. Find all CDN scripts needed (from bare imports OR detected globals)
   const injectedCdns = new Set();
   const cdnScripts = [];
 
-  // Match: import X from 'pkg' / import * as X from 'pkg' / import { X } from 'pkg'
+  const addCdn = (pkg) => {
+    const basePkg = pkg.split('/')[0];
+    const cdnUrl = CDN_MAP[basePkg] || CDN_MAP[pkg];
+    if (cdnUrl && !injectedCdns.has(cdnUrl)) {
+      injectedCdns.add(cdnUrl);
+      cdnScripts.push(cdnUrl);
+    }
+  };
+
+  // Detect bare imports
   out = out.replace(
     /import\s+(?:[\w*{}\s,]+\s+from\s+)?['"]([^./][^'"]*)['"]/g,
-    (match, pkg) => {
-      const basePkg = pkg.split('/')[0];
-      const cdnUrl = CDN_MAP[basePkg] || CDN_MAP[pkg];
-      if (cdnUrl && !injectedCdns.has(cdnUrl)) {
-        injectedCdns.add(cdnUrl);
-        cdnScripts.push(`<script src="${cdnUrl}"></script>`);
-      }
-      // Comment out the import — the CDN script makes globals available
-      return `/* import replaced by CDN: ${pkg} */`;
-    }
+    (match, pkg) => { addCdn(pkg); return \`/* CDN: \${pkg} */\`; }
   );
-
-  // Also handle: const X = require('pkg')
   out = out.replace(
-    /(?:const|let|var)\s+(\w+)\s*=\s*require\(['"]([^'"]+)['"]\)/g,
-    (match, varName, pkg) => {
-      const basePkg = pkg.split('/')[0];
-      const cdnUrl = CDN_MAP[basePkg] || CDN_MAP[pkg];
-      if (cdnUrl && !injectedCdns.has(cdnUrl)) {
-        injectedCdns.add(cdnUrl);
-        cdnScripts.push(`<script src="${cdnUrl}"></script>`);
-      }
-      return `/* require replaced by CDN: ${pkg} */\n// ${varName} is available as global`;
-    }
+    /(?:const|let|var)\s+\w+\s*=\s*require\(['"]([^'"]+)['"]\)/g,
+    (match, pkg) => { addCdn(pkg); return \`/* CDN: \${pkg} */\`; }
   );
 
-  // Inject CDN scripts + error catcher before </head> or at top of <body>
-  const errorScript = `<script>
+  // Auto-detect globals used in code
+  Object.entries(CDN_MAP).forEach(([pkg, url]) => {
+    const globalName = pkg === 'three' ? 'THREE' :
+                       pkg === 'chart.js' ? 'Chart' :
+                       pkg === 'matter-js' ? 'Matter' :
+                       pkg === 'pixi.js' ? 'PIXI' :
+                       pkg.charAt(0).toUpperCase() + pkg.slice(1);
+    if (out.includes(globalName + '.') && !injectedCdns.has(url)) {
+      injectedCdns.add(url);
+      cdnScripts.push(url);
+    }
+  });
+
+  // 3. Error catcher
+  const errorScript = \`<script>
 window.onerror = function(msg, url, line, col, err) {
   parent.postMessage({ type: 'previewError', message: msg, line: line }, '*');
   return false;
@@ -84,9 +87,47 @@ window.onerror = function(msg, url, line, col, err) {
 window.addEventListener('unhandledrejection', function(e) {
   parent.postMessage({ type: 'previewError', message: e.reason?.message || String(e.reason), line: 0 }, '*');
 });
-</script>`;
+<\/script>\`;
 
-  const injectBlock = cdnScripts.join('\n') + '\n' + errorScript;
+  // 4. Build script loader that waits for ALL CDN scripts before running inline code
+  // This is the key fix — scripts load sequentially, then deferred inline scripts run
+  let injectBlock;
+  if (cdnScripts.length > 0) {
+    const scriptUrls = JSON.stringify(cdnScripts);
+    injectBlock = \`\${errorScript}
+<script>
+(function() {
+  var urls = \${scriptUrls};
+  var loaded = 0;
+  function loadNext(i) {
+    if (i >= urls.length) {
+      // All CDN scripts loaded — now run deferred inline scripts
+      document.querySelectorAll('script[data-defer]').forEach(function(s) {
+        var fn = new Function(s.textContent);
+        try { fn(); } catch(e) { 
+          parent.postMessage({ type: 'previewError', message: e.message, line: 0 }, '*');
+        }
+      });
+      return;
+    }
+    var s = document.createElement('script');
+    s.src = urls[i];
+    s.onload = function() { loadNext(i + 1); };
+    s.onerror = function() { 
+      console.warn('CDN load failed:', urls[i]); 
+      loadNext(i + 1); 
+    };
+    document.head.appendChild(s);
+  }
+  loadNext(0);
+})();
+<\/script>\`;
+
+    // Mark all inline scripts as deferred so they run after CDN loads
+    out = out.replace(/<script(?![^>]*src=)(?![^>]*data-defer)([^>]*)>/g, '<script data-defer$1>');
+  } else {
+    injectBlock = errorScript;
+  }
 
   if (out.includes('</head>')) {
     out = out.replace('</head>', injectBlock + '\n</head>');
