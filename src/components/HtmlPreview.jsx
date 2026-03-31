@@ -1,32 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { X, RefreshCw, AlertCircle } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { X, RefreshCw } from 'lucide-react';
 
 export default function HtmlPreview({ html, title, onClose }) {
   const iframeRef = useRef(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
+    if (!html || typeof html !== 'string') return;
 
-    if (!html || typeof html !== 'string') {
-      setError('No HTML content provided');
-      setLoading(false);
-      return;
-    }
-
-    // Ensure we have complete HTML document
     let fullHtml = html;
     
-    // If it's not a complete document, wrap it
     if (!html.includes('<!DOCTYPE') && !html.includes('<html')) {
       fullHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title || 'Preview'}</title>
+  <title>Preview</title>
   <style>
     body { 
       margin: 0; 
@@ -44,32 +33,17 @@ ${html}
 </html>`;
     }
 
-    try {
-      // Create blob and URL
-      const blob = new Blob([fullHtml], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
+    const blob = new Blob([fullHtml], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
 
-      // Set iframe src
-      if (iframeRef.current) {
-        iframeRef.current.src = url;
-        
-        // Cleanup previous URL after a delay
-        setTimeout(() => {
-          if (url) URL.revokeObjectURL(url);
-        }, 1000);
-      }
-
-      setLoading(false);
-    } catch (err) {
-      setError('Failed to create preview: ' + err.message);
-      setLoading(false);
+    if (iframeRef.current) {
+      iframeRef.current.src = url;
     }
 
-    // Cleanup
     return () => {
-      setLoading(false);
+      URL.revokeObjectURL(url);
     };
-  }, [html, title]);
+  }, [html]);
 
   const handleRefresh = () => {
     if (iframeRef.current) {
@@ -79,7 +53,6 @@ ${html}
 
   return (
     <div className="fixed inset-0 z-[100] bg-[#0a0a0f] flex flex-col">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-[#0f0f16] border-b border-[#333]">
         <div className="flex items-center gap-3">
           <button 
@@ -111,28 +84,13 @@ ${html}
         </div>
       </div>
 
-      {/* Content Area */}
       <div className="flex-1 relative bg-[#0a0a0f]">
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-[#00ff88] animate-pulse">Loading preview...</div>
-          </div>
-        )}
-        
-        {error && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-red-400">
-            <AlertCircle className="w-12 h-12 mb-4" />
-            <p>{error}</p>
-            <p className="text-sm text-[#666] mt-2">Check console for details</p>
-          </div>
-        )}
-
         <iframe
           ref={iframeRef}
           className="w-full h-full border-0"
           sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"
+          style={{ background: '#0a0a0f' }}
           title="HTML Preview"
-          style={{ background: 'white' }}
         />
       </div>
     </div>
