@@ -1,298 +1,172 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import {
-  X, Save, Undo2, Redo2, Search, Copy, Check,
-  ChevronLeft, Type, WrapText, Hash,
-} from 'lucide-react';
-import hljs from 'highlight.js/lib/core';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { X, Save, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
-export default function CodeEditor({ path, initialContent, onSave, onClose }) {
-  const [content, setContent] = useState(initialContent || '');
+export default function CodeEditor({ filePath, content, onClose, onSave }) {
+  const [code, setCode] = useState(content);
   const [saved, setSaved] = useState(true);
   const [showSearch, setShowSearch] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [wordWrap, setWordWrap] = useState(true);
-  const [fontSize, setFontSize] = useState(13);
-  const [copied, setCopied] = useState(false);
-  const [undoStack, setUndoStack] = useState([]);
-  const [redoStack, setRedoStack] = useState([]);
+  const [searchResults, setSearchResults] = useState([]);
+  const [currentMatch, setCurrentMatch] = useState(0);
+  const textareaRef = useRef(null);
   const [cursorLine, setCursorLine] = useState(1);
   const [cursorCol, setCursorCol] = useState(1);
-  const textareaRef = useRef(null);
-  const highlightRef = useRef(null);
-  const scrollRef = useRef(null);
-  const lastSaveRef = useRef(initialContent || '');
 
-  const ext = path?.split('.').pop() || '';
-  const lines = content.split('\n');
+  const lines = code.split('\n');
   const lineCount = lines.length;
+  const ext = filePath.split('.').pop() || '';
 
-  // Detect if file is modified
   useEffect(() => {
-    setSaved(content === lastSaveRef.current);
-  }, [content]);
+    setCode(content);
+    setSaved(true);
+  }, [content, filePath]);
 
-  // Track cursor position
-  const updateCursor = useCallback(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const pos = ta.selectionStart;
-    const before = content.substring(0, pos);
-    const line = (before.match(/\n/g) || []).length + 1;
-    const col = pos - before.lastIndexOf('\n');
-    setCursorLine(line);
-    setCursorCol(col);
-  }, [content]);
-
-  // Handle tab key
-  const handleKeyDown = (e) => {
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const start = e.target.selectionStart;
-      const end = e.target.selectionEnd;
-      const newContent = content.substring(0, start) + '  ' + content.substring(end);
-      pushUndo();
-      setContent(newContent);
-      // Restore cursor
-      requestAnimationFrame(() => {
-        e.target.selectionStart = e.target.selectionEnd = start + 2;
-      });
-    }
-  };
-
-  const pushUndo = () => {
-    setUndoStack((prev) => [...prev.slice(-50), content]);
-    setRedoStack([]);
-  };
-
-  const handleUndo = () => {
-    if (undoStack.length === 0) return;
-    const prev = undoStack[undoStack.length - 1];
-    setRedoStack((r) => [...r, content]);
-    setUndoStack((u) => u.slice(0, -1));
-    setContent(prev);
-  };
-
-  const handleRedo = () => {
-    if (redoStack.length === 0) return;
-    const next = redoStack[redoStack.length - 1];
-    setUndoStack((u) => [...u, content]);
-    setRedoStack((r) => r.slice(0, -1));
-    setContent(next);
+  const handleChange = (e) => {
+    setCode(e.target.value);
+    setSaved(e.target.value === content);
   };
 
   const handleSave = async () => {
-    const success = await onSave?.(path, content);
-    if (success) {
-      setSaved(true);
-      lastSaveRef.current = content;
+    const ok = await onSave(filePath, code);
+    if (ok) setSaved(true);
+  };
+
+  const handleKeyDown = (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault();
+      handleSave();
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+      e.preventDefault();
+      setShowSearch(true);
     }
   };
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch { /* fallback if needed */ }
+  const updateCursorPos = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const pos = textarea.selectionStart;
+    const textBefore = code.substring(0, pos);
+    const line = textBefore.split('\n').length;
+    const col = textBefore.split('\n').pop().length + 1;
+    setCursorLine(line);
+    setCursorCol(col);
   };
 
-  // Sync scroll between textarea and line numbers
-  const handleScroll = () => {
-    if (highlightRef.current && textareaRef.current) {
-      highlightRef.current.scrollTop = textareaRef.current.scrollTop;
+  const performSearch = useCallback(() => {
+    if (!searchTerm) {
+      setSearchResults([]);
+      return;
+    }
+    const results = [];
+    const regex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    let match;
+    while ((match = regex.exec(code)) !== null) {
+      results.push(match.index);
+    }
+    setSearchResults(results);
+    setCurrentMatch(results.length > 0 ? 0 : -1);
+  }, [searchTerm, code]);
+
+  useEffect(() => {
+    performSearch();
+  }, [performSearch]);
+
+  const goToMatch = (direction) => {
+    if (searchResults.length === 0) return;
+    let next = currentMatch + direction;
+    if (next < 0) next = searchResults.length - 1;
+    if (next >= searchResults.length) next = 0;
+    setCurrentMatch(next);
+    
+    const pos = searchResults[next];
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.setSelectionRange(pos, pos + searchTerm.length);
+      textarea.focus();
     }
   };
-
-  // Search highlighting
-  const matchCount = searchTerm
-    ? (content.match(new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')) || []).length
-    : 0;
-
-  if (!path) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-void-950 safe-top safe-bottom">
-      {/* ── Top Toolbar ── */}
-      <div className="flex items-center justify-between px-2 py-2 border-b border-white/5 glass-panel gap-1">
-        <div className="flex items-center gap-1 min-w-0">
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg hover:bg-white/5 active:scale-90 transition-all shrink-0"
-          >
-            <ChevronLeft size={18} className="text-steel-300" />
+    <div className="fixed inset-0 z-[60] bg-[#0a0a0f] flex flex-col">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between px-4 py-2 bg-[#0f0f16] border-b border-[#333]">
+        <div className="flex items-center gap-4">
+          <button onClick={onClose} className="p-2 hover:bg-[#333] rounded-lg">
+            <X className="w-5 h-5 text-[#666]" />
           </button>
-          <div className="min-w-0">
-            <p className="text-xs font-mono text-steel-200 truncate">{path}</p>
-            <p className="text-[9px] font-mono text-steel-600">
-              {lineCount}L · {ext.toUpperCase()} · L{cursorLine}:C{cursorCol}
-              {!saved && <span className="text-neon-amber ml-1">● Modified</span>}
-            </p>
-          </div>
+          <span className="text-[#e0e0e0] font-mono text-sm">{filePath}</span>
+          {!saved && <span className="text-[#00ff88] text-xs">● Modified</span>}
         </div>
-
-        <div className="flex items-center gap-0.5 shrink-0">
-          <button
-            onClick={handleUndo}
-            disabled={undoStack.length === 0}
-            className="p-2 rounded hover:bg-white/5 active:scale-90 disabled:opacity-20"
-          >
-            <Undo2 size={15} className="text-steel-400" />
-          </button>
-          <button
-            onClick={handleRedo}
-            disabled={redoStack.length === 0}
-            className="p-2 rounded hover:bg-white/5 active:scale-90 disabled:opacity-20"
-          >
-            <Redo2 size={15} className="text-steel-400" />
-          </button>
+        
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-[#666] font-mono">
+            {lineCount}L · {ext.toUpperCase()} · L{cursorLine}:C{cursorCol}
+          </span>
           <button
             onClick={() => setShowSearch(!showSearch)}
-            className={`p-2 rounded hover:bg-white/5 active:scale-90 ${showSearch ? 'bg-white/5' : ''}`}
+            className={`p-2 rounded-lg ${showSearch ? 'bg-[#00ff88]/20 text-[#00ff88]' : 'hover:bg-[#333] text-[#666]'}`}
           >
-            <Search size={15} className="text-steel-400" />
-          </button>
-          <button
-            onClick={handleCopy}
-            className="p-2 rounded hover:bg-white/5 active:scale-90"
-          >
-            {copied ? <Check size={15} className="text-neon-green" /> : <Copy size={15} className="text-steel-400" />}
+            <Search className="w-4 h-4" />
           </button>
           <button
             onClick={handleSave}
-            className={`p-2 rounded active:scale-90 transition-all ${
-              saved
-                ? 'opacity-30'
-                : 'bg-neon-green/10 hover:bg-neon-green/15'
-            }`}
             disabled={saved}
+            className="flex items-center gap-2 px-3 py-2 bg-[#00ff88] text-[#0a0a0f] rounded-lg text-sm font-medium hover:bg-[#00ff88]/90 disabled:opacity-50"
           >
-            <Save size={15} className={saved ? 'text-steel-500' : 'text-neon-green'} />
+            <Save className="w-4 h-4" />
+            Save
           </button>
         </div>
       </div>
 
-      {/* ── Search Bar ── */}
+      {/* Search bar */}
       {showSearch && (
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-white/5 bg-void-800/50">
-          <Search size={13} className="text-steel-500 shrink-0" />
+        <div className="flex items-center gap-2 px-4 py-2 bg-[#1a1a24] border-b border-[#333]">
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search..."
-            className="flex-1 bg-transparent text-xs font-mono text-steel-200 py-1
-              focus:outline-none placeholder:text-steel-600 caret-neon-green"
+            className="flex-1 bg-transparent text-sm text-[#e0e0e0] placeholder-[#666] focus:outline-none"
             autoFocus
           />
-          {searchTerm && (
-            <span className="text-[10px] font-mono text-steel-500 shrink-0">
-              {matchCount} match{matchCount !== 1 ? 'es' : ''}
+          {searchResults.length > 0 && (
+            <span className="text-xs text-[#666]">
+              {currentMatch + 1} / {searchResults.length}
             </span>
           )}
-          <button onClick={() => { setShowSearch(false); setSearchTerm(''); }}
-            className="p-1 rounded hover:bg-white/5">
-            <X size={13} className="text-steel-500" />
+          <button onClick={() => goToMatch(-1)} className="p-1 hover:bg-[#333] rounded">
+            <ChevronLeft className="w-4 h-4 text-[#666]" />
+          </button>
+          <button onClick={() => goToMatch(1)} className="p-1 hover:bg-[#333] rounded">
+            <ChevronRight className="w-4 h-4 text-[#666]" />
           </button>
         </div>
       )}
 
-      {/* ── Editor Area ── */}
-      <div className="flex-1 relative overflow-hidden">
-        <div className="absolute inset-0 flex">
-          {/* Line numbers */}
-          <div
-            ref={highlightRef}
-            className="w-10 shrink-0 overflow-hidden bg-void-900/50 border-r border-white/[0.04] select-none"
-          >
-            <div className="py-3 px-1">
-              {lines.map((_, i) => (
-                <div
-                  key={i}
-                  className={`text-right pr-2 leading-[1.65] text-[${fontSize - 1}px] font-mono ${
-                    cursorLine === i + 1 ? 'text-neon-green/60' : 'text-steel-700'
-                  }`}
-                  style={{ fontSize: `${fontSize - 1}px`, lineHeight: '1.65' }}
-                >
-                  {i + 1}
-                </div>
-              ))}
+      {/* Editor */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Line numbers */}
+        <div className="w-16 py-4 bg-[#0f0f16] border-r border-[#333] text-right pr-4 select-none overflow-hidden">
+          {lines.map((_, i) => (
+            <div key={i} className="text-xs text-[#666] font-mono leading-6">
+              {i + 1}
             </div>
-          </div>
-
-          {/* Textarea */}
-          <textarea
-            ref={textareaRef}
-            value={content}
-            onChange={(e) => {
-              pushUndo();
-              setContent(e.target.value);
-            }}
-            onScroll={handleScroll}
-            onClick={updateCursor}
-            onKeyUp={updateCursor}
-            onKeyDown={handleKeyDown}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            autoComplete="off"
-            className="flex-1 bg-transparent text-steel-200 p-3 resize-none
-              focus:outline-none caret-neon-green selection:bg-neon-green/15"
-            style={{
-              fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-              fontSize: `${fontSize}px`,
-              lineHeight: '1.65',
-              tabSize: 2,
-              whiteSpace: wordWrap ? 'pre-wrap' : 'pre',
-              overflowWrap: wordWrap ? 'break-word' : 'normal',
-            }}
-          />
+          ))}
         </div>
-      </div>
-
-      {/* ── Bottom Toolbar ── */}
-      <div className="flex items-center justify-between px-3 py-2 border-t border-white/5 glass-panel">
-        <div className="flex items-center gap-2">
-          {/* Font size controls */}
-          <button
-            onClick={() => setFontSize((s) => Math.max(10, s - 1))}
-            className="p-1.5 rounded hover:bg-white/5 active:scale-90"
-          >
-            <Type size={12} className="text-steel-500" />
-          </button>
-          <span className="text-[10px] font-mono text-steel-500 w-6 text-center">{fontSize}</span>
-          <button
-            onClick={() => setFontSize((s) => Math.min(20, s + 1))}
-            className="p-1.5 rounded hover:bg-white/5 active:scale-90"
-          >
-            <Type size={15} className="text-steel-400" />
-          </button>
-
-          <div className="w-px h-4 bg-white/5" />
-
-          {/* Word wrap toggle */}
-          <button
-            onClick={() => setWordWrap(!wordWrap)}
-            className={`p-1.5 rounded hover:bg-white/5 active:scale-90 ${wordWrap ? 'bg-white/5' : ''}`}
-            title="Toggle word wrap"
-          >
-            <WrapText size={14} className={wordWrap ? 'text-neon-green/70' : 'text-steel-500'} />
-          </button>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] font-mono text-steel-600">
-            {content.length.toLocaleString()} chars
-          </span>
-          {!saved && (
-            <button
-              onClick={handleSave}
-              className="text-[10px] font-mono text-void-950 bg-neon-green px-3 py-1 rounded-md
-                active:scale-95 transition-transform font-semibold"
-            >
-              SAVE
-            </button>
-          )}
-        </div>
+        
+        {/* Textarea */}
+        <textarea
+          ref={textareaRef}
+          value={code}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onClick={updateCursorPos}
+          onKeyUp={updateCursorPos}
+          className="flex-1 bg-transparent text-[#e0e0e0] font-mono text-sm p-4 resize-none focus:outline-none leading-6"
+          spellCheck={false}
+        />
       </div>
     </div>
   );
