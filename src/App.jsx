@@ -5,13 +5,13 @@ import ChatView from './components/ChatView.jsx';
 import CodeEditor from './components/CodeEditor.jsx';
 import HtmlPreview from './components/HtmlPreview.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
-import AgentPanel from './components/AgentPanel.jsx';
-import MultiAgentPanel from './components/MultiAgentPanel.jsx';
-import RateLimitMonitor from './components/RateLimitMonitor.jsx';
 import { useLLM } from './hooks/useLLM.js';
 import { useWorkspace } from './hooks/useWorkspace.js';
 import { useAgent } from './hooks/useAgent.js';
+import AgentPanel from './components/AgentPanel.jsx';
 import { useMultiAgent } from './hooks/useMultiAgent.js';
+import RateLimitMonitor from './components/RateLimitMonitor.jsx';
+import MultiAgentPanel from './components/MultiAgentPanel.jsx';
 import { uid } from './utils/codeParser.js';
 import { saveChat, getSetting } from './utils/db.js';
 
@@ -224,6 +224,7 @@ export default function App() {
 
       {rateLimitOpen && (
         <RateLimitMonitor 
+          isOpen={rateLimitOpen}
           onClose={() => setRateLimitOpen(false)}
           activeEngine={llm.activeEngine} 
           activeModel={llm.activeModel}
