@@ -35,7 +35,7 @@ async function callProvider(apiKey, engine, model, systemPrompt, messages, tempe
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: model || 'llama-3.3-70b-versatile',
+        model: model || 'openai/gpt-oss-120b',
         messages: [{ role: 'system', content: systemPrompt }, ...messages.map(({role,content})=>({role,content}))],
         temperature, max_tokens: 8192,
       }),
@@ -357,7 +357,7 @@ Your output is the final shipped product. Make it exceptional.`;
     apiKey = resolvedKey;
     engine = resolvedEngine;
     // Fix model for engine
-    const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'qwen-qwq-32b', openrouter: 'mistralai/mistral-7b-instruct:free' };
+    const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'openai/gpt-oss-120b', openrouter: 'mistralai/mistral-7b-instruct:free' };
     if (!model || model === 'gemini-2.5-flash' && engine !== 'gemini') {
       model = defaultModels[engine];
     }

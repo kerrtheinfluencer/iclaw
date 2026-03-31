@@ -107,7 +107,7 @@ async function callProvider(apiKey, engine, model, systemPrompt, messages) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model: model || 'llama-3.3-70b-versatile',
+          model: model || 'openai/gpt-oss-120b',
           messages: [
             { role: 'system', content: systemPrompt },
             ...messages.map(({ role, content }) => ({ role, content })),
