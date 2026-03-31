@@ -197,7 +197,7 @@ export function useMultiAgent() {
 
       for (const [path, content] of Object.entries(writtenFiles)) {
         if (onFileWrite) await onFileWrite(path, content);
-        if (path.endsWith('.html') && onPreview) onPreview(content, path);
+        if (path.endsWith('.html') && onPreview) onPreview(content, path, writtenFiles);
       }
 
       addStep('coder', { type: 'write_file', status: 'done', label: `${Object.keys(writtenFiles).length} file(s) written`, detail: Object.keys(writtenFiles).join(', ') });
@@ -215,11 +215,12 @@ export function useMultiAgent() {
 
       const fixedFiles = extractFiles(review);
       if (Object.keys(fixedFiles).length > 0) {
-        setFiles(prev => ({ ...prev, ...fixedFiles }));
+        const updatedFiles = { ...writtenFiles, ...fixedFiles };
+        setFiles(updatedFiles);
         addStep('reviewer', { type: 'write_file', status: 'done', label: `Fixed ${Object.keys(fixedFiles).length} file(s)`, detail: Object.keys(fixedFiles).join(', ') });
         for (const [path, content] of Object.entries(fixedFiles)) {
           if (onFileWrite) await onFileWrite(path, content);
-          if (path.endsWith('.html') && onPreview) onPreview(content, path);
+          if (path.endsWith('.html') && onPreview) onPreview(content, path, updatedFiles);
         }
       } else {
         addStep('reviewer', { type: 'check', status: 'done', label: 'Code passed review' });
