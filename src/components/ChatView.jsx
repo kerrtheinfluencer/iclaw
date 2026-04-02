@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import ChatMessage from './ChatMessage.jsx';
 
-// Wrap JS for inline preview (no external CDN needed for srcdoc)
+// Wrap JS for inline preview - using string concat to avoid template literal conflicts
 function wrapJsPreview(code) {
   const libs = [];
   if (code.includes('THREE')) libs.push('https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js');
@@ -17,10 +17,22 @@ function wrapJsPreview(code) {
   const needsCanvas = code.includes('THREE') || code.includes('PIXI') || code.includes('canvas') || code.includes('getContext');
   const cleaned = code.replace(/^import\s+.*$/gm, '').replace(/^export\s+/gm, '');
   const urlsJson = JSON.stringify(libs);
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<style>*{margin:0;box-sizing:border-box}body{background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;overflow:hidden}canvas{display:block;}</style>
-</head><body>${needsCanvas ? '<canvas id="canvas" style="width:100vw;height:100%;display:block;"></canvas>' : '<div id="app" style="padding:16px;min-height:100vh;"></div>'}
-<script>(function(){var u=${urlsJson};function run(){var c=document.getElementById('canvas');if(c){c.width=window.innerWidth;c.height=window.innerHeight;}try{(function(){${cleaned}})();}catch(e){document.body.innerHTML='<div style="color:#f87171;padding:16px;font-family:monospace"><b>Error:</b> '+e.message+'</div>';}}function l(i){if(i>=u.length){run();return;}var s=document.createElement('script');s.src=u[i];s.onload=function(){l(i+1);};s.onerror=function(){l(i+1);};document.head.appendChild(s);}l(0);})();<\/script></body></html>`;
+  const body = needsCanvas
+    ? '<canvas id="canvas" style="width:100vw;height:100%;display:block;"></canvas>'
+    : '<div id="app" style="padding:16px;min-height:100vh;"></div>';
+  const loaderScript = '(function(){var u=' + urlsJson + ';' +
+    'function run(){var c=document.getElementById("canvas");' +
+    'if(c){c.width=window.innerWidth;c.height=window.innerHeight;}' +
+    'try{(function(){' + cleaned + '})();}' +
+    'catch(e){document.body.innerHTML="<div style='color:#f87171;padding:16px'>Error: "+e.message+"</div>";}}' +
+    'function l(i){if(i>=u.length){run();return;}' +
+    'var s=document.createElement("script");s.src=u[i];' +
+    's.onload=function(){l(i+1);};s.onerror=function(){l(i+1);};' +
+    'document.head.appendChild(s);}l(0);})();';
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+    '<style>*{margin:0;box-sizing:border-box}body{background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;overflow:hidden}canvas{display:block;}</style>' +
+    '</head><body>' + body +
+    '<script>' + loaderScript + '<' + '/script></body></html>';
 }
 
 export default function ChatView({
