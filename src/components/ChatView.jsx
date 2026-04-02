@@ -151,7 +151,7 @@ export default function ChatView({
                   { id: 'groq', icon: '⚡', name: 'Groq', desc: 'Free · Fastest inference', color: 'border-orange-400/20' },
                   { id: 'openrouter', icon: '◈', name: 'OpenRouter', desc: 'Free models · DeepSeek, Qwen', color: 'border-purple-400/20' },
                 ].map((p) => (
-                  <button key={p.id} onClick={onOpenSettings}
+                  <button key={p.id} onClick={() => onInitModel(p.id)}
                     className={`w-full flex items-center gap-3 p-3 rounded-xl border ${p.color} bg-white/[0.01] hover:bg-white/[0.03] transition-all active:scale-[0.98]`}>
                     <span className="text-xl">{p.icon}</span>
                     <div className="text-left">
