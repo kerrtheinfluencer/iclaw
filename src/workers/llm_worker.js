@@ -1,6 +1,6 @@
 /**
  * iclaw v1.5 — Multi-Provider Free Inference Worker
- * Providers: Gemini, Groq, Cerebras, SambaNova, Puter (no key!), OpenRouter
+ * Providers: Gemini, Groq, OpenRouter, Cerebras, SambaNova, Puter (no key!)
  */
 
 let engine = null;
@@ -22,12 +22,12 @@ const PROVIDERS = {
     name: 'Groq',
     defaultModel: 'openai/gpt-oss-120b',
     models: [
-      { id: 'openai/gpt-oss-120b',                        label: 'GPT-OSS 120B',   tier: 'Best · Reasoning' },
-      { id: 'qwen/qwen3-32b',                             label: 'Qwen 3 32B',     tier: 'Code · Thinking' },
-      { id: 'moonshotai/kimi-k2-instruct-0905',           label: 'Kimi K2',        tier: '256K Context' },
-      { id: 'llama-3.3-70b-versatile',                    label: 'Llama 3.3 70B', tier: 'Reliable' },
-      { id: 'meta-llama/llama-4-scout-17b-16e-instruct',  label: 'Llama 4 Scout', tier: 'Vision' },
-      { id: 'llama-3.1-8b-instant',                       label: 'Llama 3.1 8B',  tier: 'Fastest' },
+      { id: 'openai/gpt-oss-120b',                        label: 'GPT-OSS 120B',    tier: 'Best · Reasoning' },
+      { id: 'qwen/qwen3-32b',                             label: 'Qwen 3 32B',      tier: 'Code · Thinking' },
+      { id: 'moonshotai/kimi-k2-instruct-0905',           label: 'Kimi K2',         tier: '256K Context' },
+      { id: 'llama-3.3-70b-versatile',                    label: 'Llama 3.3 70B',  tier: 'Reliable' },
+      { id: 'meta-llama/llama-4-scout-17b-16e-instruct',  label: 'Llama 4 Scout',  tier: 'Vision' },
+      { id: 'llama-3.1-8b-instant',                       label: 'Llama 3.1 8B',   tier: 'Fastest' },
     ],
   },
   cerebras: {
@@ -43,34 +43,34 @@ const PROVIDERS = {
     name: 'SambaNova',
     defaultModel: 'Meta-Llama-3.3-70B-Instruct',
     models: [
-      { id: 'Meta-Llama-3.3-70B-Instruct',             label: 'Llama 3.3 70B',    tier: 'Best Free' },
+      { id: 'Meta-Llama-3.3-70B-Instruct',        label: 'Llama 3.3 70B',   tier: 'Best Free' },
       { id: 'Meta-Llama-4-Maverick-17B-128E-Instruct', label: 'Llama 4 Maverick', tier: '10M Context' },
-      { id: 'DeepSeek-R1',                             label: 'DeepSeek R1',       tier: 'Thinking' },
-      { id: 'DeepSeek-V3-0324',                        label: 'DeepSeek V3',       tier: 'Coding' },
-      { id: 'Qwen3-32B',                               label: 'Qwen 3 32B',        tier: 'Multilingual' },
+      { id: 'DeepSeek-R1',                         label: 'DeepSeek R1',    tier: 'Thinking' },
+      { id: 'DeepSeek-V3-0324',                    label: 'DeepSeek V3',    tier: 'Coding' },
+      { id: 'Qwen3-32B',                           label: 'Qwen 3 32B',     tier: 'Multilingual' },
     ],
   },
   puter: {
     name: 'Puter (No Key!)',
     defaultModel: 'gpt-4o-mini',
     models: [
-      { id: 'gpt-4o-mini',       label: 'GPT-4o Mini',       tier: 'No Key · Fast' },
-      { id: 'gpt-4o',            label: 'GPT-4o',            tier: 'No Key · Smart' },
-      { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', tier: 'No Key · Best' },
-      { id: 'deepseek-r1',       label: 'DeepSeek R1',       tier: 'No Key · Thinking' },
-      { id: 'gemini-2.0-flash',  label: 'Gemini 2.0 Flash',  tier: 'No Key · Fast' },
+      { id: 'gpt-4o-mini',          label: 'GPT-4o Mini',      tier: 'No Key · Fast' },
+      { id: 'gpt-4o',               label: 'GPT-4o',           tier: 'No Key · Smart' },
+      { id: 'claude-sonnet-4-5',    label: 'Claude Sonnet 4.5',tier: 'No Key · Best' },
+      { id: 'deepseek-r1',          label: 'DeepSeek R1',      tier: 'No Key · Thinking' },
+      { id: 'gemini-2.0-flash',     label: 'Gemini 2.0 Flash', tier: 'No Key · Fast' },
     ],
   },
   openrouter: {
     name: 'OpenRouter',
-    defaultModel: 'google/gemma-3-27b-it:free',
+    defaultModel: 'mistralai/mistral-7b-instruct:free',
     models: [
-      { id: 'google/gemma-3-27b-it:free',              label: 'Gemma 3 27B',        tier: 'Default · Smart' },
-      { id: 'mistralai/mistral-7b-instruct:free',      label: 'Mistral 7B',         tier: 'Most Reliable' },
-      { id: 'microsoft/phi-3-mini-128k-instruct:free', label: 'Phi-3 Mini 128K',    tier: 'Fast' },
-      { id: 'qwen/qwen-2.5-coder-32b-instruct:free',   label: 'Qwen 2.5 Coder 32B', tier: 'Code' },
-      { id: 'deepseek/deepseek-r1:free',               label: 'DeepSeek R1',        tier: 'Thinking' },
-      { id: 'meta-llama/llama-3.2-3b-instruct:free',   label: 'Llama 3.2 3B',       tier: 'Compact' },
+      { id: 'mistralai/mistral-7b-instruct:free',          label: 'Mistral 7B',         tier: 'Most Reliable' },
+      { id: 'microsoft/phi-3-mini-128k-instruct:free',     label: 'Phi-3 Mini 128K',   tier: 'Fast' },
+      { id: 'google/gemma-3-27b-it:free',                  label: 'Gemma 3 27B',        tier: 'Smart' },
+      { id: 'qwen/qwen-2.5-coder-32b-instruct:free',       label: 'Qwen 2.5 Coder 32B',tier: 'Code' },
+      { id: 'deepseek/deepseek-r1:free',                   label: 'DeepSeek R1',        tier: 'Thinking' },
+      { id: 'meta-llama/llama-3.2-3b-instruct:free',       label: 'Llama 3.2 3B',      tier: 'Compact' },
     ],
   },
 };
@@ -125,9 +125,7 @@ async function searchSearXNG(query) {
       if (!res.ok) continue;
       const data = await res.json();
       if (data.results?.length > 0) {
-        return data.results.slice(0, 6).map((r, i) =>
-          `[${i + 1}] ${r.title}\n${r.content || ''}\nSource: ${r.url}`
-        ).join('\n\n');
+        return data.results.slice(0, 6).map((r, i) => `[${i + 1}] ${r.title}\n${r.content || ''}\nSource: ${r.url}`).join('\n\n');
       }
     } catch { continue; }
   }
@@ -158,23 +156,13 @@ async function enrichWithSearch(messages, forceSearch = false) {
   if (!webSearchEnabled && !forceSearch) return messages;
   const lastMsg = messages[messages.length - 1]?.content || '';
   if (!forceSearch && !SEARCH_TRIGGERS.test(lastMsg)) return messages;
-  const query = lastMsg
-    .replace(/^(search|look up|find|check|what is|who is|tell me about)\s+/i, '')
-    .slice(0, 120)
-    .replace(/[^\w\s.'-]/g, '')
-    .trim();
+  const query = lastMsg.replace(/^(search|look up|find|check|what is|who is|tell me about)\s+/i, '').slice(0, 120).replace(/[^\w\s.'-]/g, '').trim();
   if (!query) return messages;
   const searchResults = await webSearch(query);
   if (!searchResults) return messages;
   const enriched = [...messages];
-  enriched.splice(enriched.length - 1, 0, {
-    role: 'user',
-    content: `[Live web search results — ${new Date().toLocaleDateString()}]\n\n${searchResults}`,
-  });
-  enriched.splice(enriched.length - 1, 0, {
-    role: 'assistant',
-    content: 'I have current web search results. I will reference them for accuracy.',
-  });
+  enriched.splice(enriched.length - 1, 0, { role: 'user', content: `[Live web search results — ${new Date().toLocaleDateString()}]\n\n${searchResults}` });
+  enriched.splice(enriched.length - 1, 0, { role: 'assistant', content: 'I have current web search results. I will reference them for accuracy.' });
   return enriched;
 }
 
@@ -192,19 +180,13 @@ async function inferGemini(messages, model, attachments) {
   for (const msg of messages) {
     const parts = [{ text: msg.content }];
     if (msg.attachments?.length > 0) {
-      for (const att of msg.attachments) {
-        parts.push({ inline_data: { mime_type: att.mimeType, data: att.base64 } });
-      }
+      for (const att of msg.attachments) parts.push({ inline_data: { mime_type: att.mimeType, data: att.base64 } });
     }
     contents.push({ role: msg.role === 'assistant' ? 'model' : 'user', parts });
   }
   if (attachments?.length > 0) {
     const lastUser = contents.findLast(c => c.role === 'user');
-    if (lastUser) {
-      for (const att of attachments) {
-        lastUser.parts.push({ inline_data: { mime_type: att.mimeType, data: att.base64 } });
-      }
-    }
+    if (lastUser) for (const att of attachments) lastUser.parts.push({ inline_data: { mime_type: att.mimeType, data: att.base64 } });
   }
   const requestBody = {
     contents,
@@ -212,21 +194,16 @@ async function inferGemini(messages, model, attachments) {
     tools: [{ google_search: {} }],
   };
   const startTime = performance.now();
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
-  });
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   const parts = data.candidates?.[0]?.content?.parts || [];
   const fullText = parts.map(p => p.text || '').join('');
-  const sources = data.candidates?.[0]?.groundingMetadata?.groundingChunks
-    ?.map(c => c.web?.uri).filter(Boolean) || [];
+  const sources = data.candidates?.[0]?.groundingMetadata?.groundingChunks?.map(c => c.web?.uri).filter(Boolean) || [];
   const elapsed = (performance.now() - startTime) / 1000;
   const tokens = data.usageMetadata?.candidatesTokenCount || fullText.split(' ').length;
   const textWithSources = sources.length > 0
-    ? fullText + `\n\n---\n🌐 **Sources:** ${sources.slice(0, 3).map((s, i) => `[${i + 1}] ${s}`).join(' · ')}`
+    ? fullText + `\n\n---\n🌐 **Sources:** ${sources.slice(0, 3).map((s, i) => `[${i+1}] ${s}`).join(' · ')}`
     : fullText;
   return { fullText: textWithSources, tokens, elapsed };
 }
@@ -243,10 +220,7 @@ async function inferGroq(messages, model) {
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
     body: JSON.stringify({
       model: model || PROVIDERS.groq.defaultModel,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        ...enrichedMessages.map(({ role, content }) => ({ role, content })),
-      ],
+      messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...enrichedMessages.map(({ role, content }) => ({ role, content }))],
       temperature: 0.3, max_tokens: 8192, top_p: 0.9,
     }),
   });
@@ -269,10 +243,7 @@ async function inferCerebras(messages, model) {
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
     body: JSON.stringify({
       model: model || PROVIDERS.cerebras.defaultModel,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        ...enrichedMessages.map(({ role, content }) => ({ role, content })),
-      ],
+      messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...enrichedMessages.map(({ role, content }) => ({ role, content }))],
       temperature: 0.3, max_tokens: 8192,
     }),
   });
@@ -295,10 +266,7 @@ async function inferSambaNova(messages, model) {
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
     body: JSON.stringify({
       model: model || PROVIDERS.sambanova.defaultModel,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        ...enrichedMessages.map(({ role, content }) => ({ role, content })),
-      ],
+      messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...enrichedMessages.map(({ role, content }) => ({ role, content }))],
       temperature: 0.3, max_tokens: 8192,
     }),
   });
@@ -309,21 +277,22 @@ async function inferSambaNova(messages, model) {
   return { fullText, tokens: data.usage?.completion_tokens || fullText.split(' ').length, elapsed };
 }
 
-// ─── Puter (No API Key Required!) ────────────────────────────────────
+// ─── Puter (No API Key Required!) ───────────────────────────────────
 
 async function inferPuter(messages, model) {
+  // Puter.js — completely free, no API key needed
+  // We call it via a sandboxed approach using fetch to their public endpoint
   const m = model || PROVIDERS.puter.defaultModel;
   const startTime = performance.now();
-  const driver = m.startsWith('gpt') ? 'openai'
-    : m.startsWith('claude') ? 'claude'
-    : m.startsWith('gemini') ? 'google-ai'
-    : 'openai';
+  
+  // Puter uses a different approach — load their JS SDK
+  // Since we're in a worker, we use their REST-like interface
   const res = await fetch('https://api.puter.com/drivers/call', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       interface: 'puter-chat-completion',
-      driver,
+      driver: m.startsWith('gpt') ? 'openai' : m.startsWith('claude') ? 'claude' : m.startsWith('gemini') ? 'google-ai' : 'openai',
       test_mode: false,
       method: 'complete',
       args: {
@@ -337,10 +306,9 @@ async function inferPuter(messages, model) {
   });
   if (!res.ok) throw new Error(`Puter ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
-  const raw = data.result?.message?.content?.[0]?.text || data.result?.content || data.result || '';
-  const fullText = typeof raw === 'string' ? raw : JSON.stringify(raw);
+  const fullText = data.result?.message?.content?.[0]?.text || data.result?.content || data.result || '';
   const elapsed = (performance.now() - startTime) / 1000;
-  return { fullText, tokens: fullText.split(' ').length, elapsed };
+  return { fullText: typeof fullText === 'string' ? fullText : JSON.stringify(fullText), tokens: fullText.split?.(' ').length || 0, elapsed };
 }
 
 // ─── OpenRouter ──────────────────────────────────────────────────────
@@ -352,18 +320,10 @@ async function inferOpenRouter(messages, model) {
   const startTime = performance.now();
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key}`,
-      'HTTP-Referer': 'https://kerrtheinfluencer.github.io/iclaw/',
-      'X-Title': 'iclaw',
-    },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'HTTP-Referer': 'https://kerrtheinfluencer.github.io/iclaw/', 'X-Title': 'iclaw' },
     body: JSON.stringify({
       model: model || PROVIDERS.openrouter.defaultModel,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        ...enrichedMessages.map(({ role, content }) => ({ role, content })),
-      ],
+      messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...enrichedMessages.map(({ role, content }) => ({ role, content }))],
       temperature: 0.3, max_tokens: 8192,
     }),
   });
@@ -377,7 +337,7 @@ async function inferOpenRouter(messages, model) {
 // ─── WASM ────────────────────────────────────────────────────────────
 
 async function initWASM() {
-  report('status', { status: 'loading', message: 'Loading WASM engine…' });
+  report('status', { status: 'loading', message: 'Loading WASM engine...' });
   try {
     const { Wllama } = await import('https://cdn.jsdelivr.net/npm/@nicepkg/wllama@latest/dist/index.esm.js');
     engine = new Wllama({
@@ -389,10 +349,7 @@ async function initWASM() {
     await engine.loadModelFromUrl(WASM_MODEL.url, {
       n_ctx: 2048, n_threads: 4,
       progressCallback: ({ loaded, total }) => {
-        report('loadProgress', {
-          progress: total > 0 ? loaded / total : 0,
-          text: `${(loaded / 1024 / 1024).toFixed(0)}MB / ${(total / 1024 / 1024).toFixed(0)}MB`,
-        });
+        report('loadProgress', { progress: total > 0 ? loaded / total : 0, text: `${(loaded / 1024 / 1024).toFixed(0)}MB / ${(total / 1024 / 1024).toFixed(0)}MB` });
       },
     });
     engineType = 'wasm';
@@ -408,13 +365,7 @@ async function inferWASM(messages) {
   const startTime = performance.now();
   await engine.createCompletion(prompt, {
     nPredict: 2048, temperature: 0.3, top_p: 0.9, repeat_penalty: 1.1,
-    onNewToken: (_t, piece) => {
-      if (piece) {
-        fullText += piece;
-        tokenCount++;
-        report('streamChunk', { requestId: 'current', delta: piece, fullText });
-      }
-    },
+    onNewToken: (_t, piece) => { if (piece) { fullText += piece; tokenCount++; report('streamChunk', { requestId: 'current', delta: piece, fullText }); } },
     stopTokens: ['<|im_end|>', '<|endoftext|>'],
   });
   return { fullText, tokens: tokenCount, elapsed: (performance.now() - startTime) / 1000 };
@@ -435,11 +386,7 @@ async function initEngine(engineId) {
       report('status', { status: 'ready', message: 'Puter ready — no API key needed!' });
     } else if (PROVIDERS[engineId]) {
       if (!apiKeys[engineId]) {
-        report('status', {
-          status: 'needsKey',
-          message: `Enter your free ${PROVIDERS[engineId].name} API key.`,
-          provider: engineId,
-        });
+        report('status', { status: 'needsKey', message: `Enter your free ${PROVIDERS[engineId].name} API key.`, provider: engineId });
       } else {
         engineType = engineId;
         activeModel = activeModel || PROVIDERS[engineId].defaultModel;
@@ -453,10 +400,7 @@ async function initEngine(engineId) {
 }
 
 async function runInference({ messages, requestId, ragContext, model, attachments }) {
-  if (!engineType) {
-    report('error', { requestId, message: 'No engine selected. Open Settings and save your API key.' });
-    return;
-  }
+  if (!engineType) { report('error', { requestId, message: 'No engine selected. Open Settings and save your API key.' }); return; }
 
   const contextMessages = [...messages];
   if (ragContext?.length > 0) {
@@ -469,12 +413,12 @@ async function runInference({ messages, requestId, ragContext, model, attachment
   try {
     let result;
     const m = model || activeModel;
-    if      (engineType === 'wasm')       result = await inferWASM(contextMessages);
-    else if (engineType === 'gemini')     result = await inferGemini(contextMessages, m, attachments);
-    else if (engineType === 'groq')       result = await inferGroq(contextMessages, m);
-    else if (engineType === 'cerebras')   result = await inferCerebras(contextMessages, m);
-    else if (engineType === 'sambanova')  result = await inferSambaNova(contextMessages, m);
-    else if (engineType === 'puter')      result = await inferPuter(contextMessages, m);
+    if (engineType === 'wasm')        result = await inferWASM(contextMessages);
+    else if (engineType === 'gemini') result = await inferGemini(contextMessages, m, attachments);
+    else if (engineType === 'groq')   result = await inferGroq(contextMessages, m);
+    else if (engineType === 'cerebras')  result = await inferCerebras(contextMessages, m);
+    else if (engineType === 'sambanova') result = await inferSambaNova(contextMessages, m);
+    else if (engineType === 'puter')     result = await inferPuter(contextMessages, m);
     else if (engineType === 'openrouter') result = await inferOpenRouter(contextMessages, m);
 
     // Simulate streaming for cloud providers
@@ -489,48 +433,26 @@ async function runInference({ messages, requestId, ragContext, model, attachment
     }
 
     report('streamEnd', {
-      requestId,
-      fullText: result.fullText,
-      stats: {
-        tokens: result.tokens,
-        elapsed: result.elapsed.toFixed(1),
-        tokPerSec: (result.tokens / result.elapsed).toFixed(1),
-        engine: engineType,
-        model: m,
-      },
+      requestId, fullText: result.fullText,
+      stats: { tokens: result.tokens, elapsed: result.elapsed.toFixed(1), tokPerSec: (result.tokens / result.elapsed).toFixed(1), engine: engineType, model: m },
     });
   } catch (err) { report('error', { requestId, message: err.message }); }
 }
 
-// ─── Message Handler ─────────────────────────────────────────────────
-
 self.onmessage = async (e) => {
   const { type, ...payload } = e.data;
   switch (type) {
-    case 'init':
-      await initEngine(payload.engine || 'gemini');
-      break;
+    case 'init': await initEngine(payload.engine || 'gemini'); break;
     case 'setKey':
       apiKeys[payload.provider] = payload.key;
       engineType = payload.provider;
       activeModel = activeModel || PROVIDERS[payload.provider]?.defaultModel;
       report('status', { status: 'ready', message: `${PROVIDERS[payload.provider]?.name || payload.provider} ready.` });
       break;
-    case 'setModel':
-      activeModel = payload.model;
-      report('modelChanged', { model: payload.model });
-      break;
-    case 'inference':
-      await runInference(payload);
-      break;
-    case 'toggleSearch':
-      webSearchEnabled = payload.enabled;
-      report('searchToggled', { enabled: webSearchEnabled });
-      break;
-    case 'reset':
-      report('status', { status: engineType ? 'ready' : 'idle', message: engineType ? 'Ready.' : '' });
-      break;
-    default:
-      report('error', { message: `Unknown message type: ${type}` });
+    case 'setModel': activeModel = payload.model; report('modelChanged', { model: payload.model }); break;
+    case 'inference': await runInference(payload); break;
+    case 'toggleSearch': webSearchEnabled = payload.enabled; report('searchToggled', { enabled: webSearchEnabled }); break;
+    case 'reset': report('status', { status: engineType ? 'ready' : 'idle', message: engineType ? 'Ready.' : '' }); break;
+    default: report('error', { message: `Unknown: ${type}` });
   }
 };
