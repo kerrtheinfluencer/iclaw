@@ -16,6 +16,7 @@ const PROVIDERS = {
     models: [
       { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'Default + Internet' },
       { id: 'gemini-2.5-pro',   label: 'Gemini 2.5 Pro',   tier: 'Most Powerful' },
+      { id: 'gemma-3-27b-it',   label: 'Gemma 3 27B',      tier: 'Open · Fast' },
     ],
   },
   groq: {
@@ -50,15 +51,16 @@ const PROVIDERS = {
       { id: 'Qwen3-32B',                           label: 'Qwen 3 32B',     tier: 'Multilingual' },
     ],
   },
-  puter: {
-    name: 'Puter (No Key!)',
-    defaultModel: 'gpt-4o-mini',
+  chutes: {
+    name: 'Chutes AI (No Key!)',
+    defaultModel: 'deepseek-ai/DeepSeek-V3-0324',
     models: [
-      { id: 'gpt-4o-mini',          label: 'GPT-4o Mini',      tier: 'No Key · Fast' },
-      { id: 'gpt-4o',               label: 'GPT-4o',           tier: 'No Key · Smart' },
-      { id: 'claude-sonnet-4-5',    label: 'Claude Sonnet 4.5',tier: 'No Key · Best' },
-      { id: 'deepseek-r1',          label: 'DeepSeek R1',      tier: 'No Key · Thinking' },
-      { id: 'gemini-2.0-flash',     label: 'Gemini 2.0 Flash', tier: 'No Key · Fast' },
+      { id: 'deepseek-ai/DeepSeek-V3-0324',          label: 'DeepSeek V3',      tier: 'No Key · Best Coding' },
+      { id: 'deepseek-ai/DeepSeek-R1',               label: 'DeepSeek R1',      tier: 'No Key · Thinking' },
+      { id: 'Qwen/Qwen3-235B-A22B',                  label: 'Qwen 3 235B',      tier: 'No Key · Massive' },
+      { id: 'Qwen/Qwen3-32B',                        label: 'Qwen 3 32B',       tier: 'No Key · Fast' },
+      { id: 'google/gemma-3-27b-it',                 label: 'Gemma 3 27B',      tier: 'No Key · Smart' },
+      { id: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct', label: 'Llama 4 Maverick', tier: 'No Key · 10M ctx' },
     ],
   },
   openrouter: {
@@ -277,38 +279,34 @@ async function inferSambaNova(messages, model) {
   return { fullText, tokens: data.usage?.completion_tokens || fullText.split(' ').length, elapsed };
 }
 
-// ─── Puter (No API Key Required!) ───────────────────────────────────
+// ─── Chutes AI (No API Key Required!) ───────────────────────────────
 
-async function inferPuter(messages, model) {
-  // Puter.js — completely free, no API key needed
-  // We call it via a sandboxed approach using fetch to their public endpoint
-  const m = model || PROVIDERS.puter.defaultModel;
+async function inferChutes(messages, model) {
+  const m = model || PROVIDERS.chutes.defaultModel;
   const startTime = performance.now();
-  
-  // Puter uses a different approach — load their JS SDK
-  // Since we're in a worker, we use their REST-like interface
-  const res = await fetch('https://api.puter.com/drivers/call', {
+  const enrichedMessages = await enrichWithSearch(messages);
+  const res = await fetch('https://llm.chutes.ai/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer chutes-free-public',
+    },
     body: JSON.stringify({
-      interface: 'puter-chat-completion',
-      driver: m.startsWith('gpt') ? 'openai' : m.startsWith('claude') ? 'claude' : m.startsWith('gemini') ? 'google-ai' : 'openai',
-      test_mode: false,
-      method: 'complete',
-      args: {
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          ...messages.map(({ role, content }) => ({ role, content })),
-        ],
-        model: m,
-      },
+      model: m,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        ...enrichedMessages.map(({ role, content }) => ({ role, content })),
+      ],
+      temperature: 0.3,
+      max_tokens: 8192,
+      stream: false,
     }),
   });
-  if (!res.ok) throw new Error(`Puter ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(`Chutes ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
-  const fullText = data.result?.message?.content?.[0]?.text || data.result?.content || data.result || '';
+  const fullText = data.choices?.[0]?.message?.content || '';
   const elapsed = (performance.now() - startTime) / 1000;
-  return { fullText: typeof fullText === 'string' ? fullText : JSON.stringify(fullText), tokens: fullText.split?.(' ').length || 0, elapsed };
+  return { fullText, tokens: data.usage?.completion_tokens || fullText.split(' ').length, elapsed };
 }
 
 // ─── OpenRouter ──────────────────────────────────────────────────────
@@ -380,10 +378,10 @@ async function initEngine(engineId) {
     if (engineId === 'wasm') {
       if (!engine) await initWASM();
       else report('status', { status: 'ready', message: 'WASM loaded.' });
-    } else if (engineId === 'puter') {
-      engineType = 'puter';
-      activeModel = activeModel || PROVIDERS.puter.defaultModel;
-      report('status', { status: 'ready', message: 'Puter ready — no API key needed!' });
+    } else if (engineId === 'chutes') {
+      engineType = 'chutes';
+      activeModel = activeModel || PROVIDERS.chutes.defaultModel;
+      report('status', { status: 'ready', message: 'Chutes AI ready — no API key needed!' });
     } else if (PROVIDERS[engineId]) {
       if (!apiKeys[engineId]) {
         report('status', { status: 'needsKey', message: `Enter your free ${PROVIDERS[engineId].name} API key.`, provider: engineId });
@@ -418,7 +416,7 @@ async function runInference({ messages, requestId, ragContext, model, attachment
     else if (engineType === 'groq')   result = await inferGroq(contextMessages, m);
     else if (engineType === 'cerebras')  result = await inferCerebras(contextMessages, m);
     else if (engineType === 'sambanova') result = await inferSambaNova(contextMessages, m);
-    else if (engineType === 'puter')     result = await inferPuter(contextMessages, m);
+    else if (engineType === 'chutes')    result = await inferChutes(contextMessages, m);
     else if (engineType === 'openrouter') result = await inferOpenRouter(contextMessages, m);
 
     // Simulate streaming for cloud providers
