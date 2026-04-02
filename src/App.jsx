@@ -4,57 +4,39 @@ import Sidebar from './components/Sidebar.jsx';
 import ChatView from './components/ChatView.jsx';
 import CodeEditor from './components/CodeEditor.jsx';
 import HtmlPreview from './components/HtmlPreview.jsx';
+import LiveCanvas from './components/LiveCanvas.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
 import { useLLM } from './hooks/useLLM.js';
 import { useWorkspace } from './hooks/useWorkspace.js';
-import { useAgent } from './hooks/useAgent.js';
-import AgentPanel from './components/AgentPanel.jsx';
-import { useMultiAgent } from './hooks/useMultiAgent.js';
-import RateLimitMonitor from './components/RateLimitMonitor.jsx';
-import MultiAgentPanel from './components/MultiAgentPanel.jsx';
 import { uid } from './utils/codeParser.js';
 import { saveChat, getSetting } from './utils/db.js';
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [agentOpen, setAgentOpen] = useState(false);
-  const [multiAgentOpen, setMultiAgentOpen] = useState(false);
-  const [rateLimitOpen, setRateLimitOpen] = useState(false);
-  const [agentApiKey, setAgentApiKey] = useState('');
-  const [agentKeys, setAgentKeys] = useState({});
   const [messages, setMessages] = useState([]);
   const [chatId, setChatId] = useState(() => uid());
   const [editingFile, setEditingFile] = useState(null);
   const [editingContent, setEditingContent] = useState('');
   const [previewHtml, setPreviewHtml] = useState(null);
   const [previewTitle, setPreviewTitle] = useState('');
-  const [previewFiles, setPreviewFiles] = useState({});
+  const [canvasHtml, setCanvasHtml] = useState(null);
+  const [canvasTitle, setCanvasTitle] = useState('');
+  const [canvasStreaming, setCanvasStreaming] = useState(false);
   const touchStartX = useRef(0);
-  const keyRestoredRef = useRef(false);
 
   const llm = useLLM();
   const workspace = useWorkspace();
-  const agent = useAgent();
-  const multiAgent = useMultiAgent();
 
-  // Auto-restore saved keys — triggered once worker reports idle status
+  // Auto-restore saved keys
   useEffect(() => {
-    if (keyRestoredRef.current) return;
-    if (llm.status !== 'idle' && llm.status !== 'needsKey') return;
-    keyRestoredRef.current = true;
     (async () => {
       for (const p of ['gemini', 'groq', 'openrouter']) {
         const key = await getSetting(`key_${p}`, '');
-        if (key) {
-          llm.setKey(p, key);
-          setAgentApiKey(key);
-          setAgentKeys(prev => ({...prev, [p]: key}));
-          break;
-        }
+        if (key) { llm.setKey(p, key); break; }
       }
     })();
-  }, [llm.status]);
+  }, []);
 
   // Swipe gestures
   useEffect(() => {
@@ -80,10 +62,21 @@ export default function App() {
       try { ragContext = await workspace.searchContext(text); } catch {}
     }
 
+    setCanvasStreaming(true);
+
     llm.generate(history, ragContext,
-      (delta, fullText) => { streamRef.current?.(fullText); },
+      (delta, fullText) => {
+        streamRef.current?.(fullText);
+        // Live-feed HTML to canvas while streaming
+        const htmlMatch = fullText.match(/```(?:html|HTML)\n([\s\S]*?)(?:```|$)/);
+        if (htmlMatch) {
+          setCanvasHtml(htmlMatch[1]);
+          setCanvasTitle(text.slice(0, 40));
+        }
+      },
       (fullText, stats, error) => {
         streamRef.current?.('');
+        setCanvasStreaming(false);
         if (fullText) {
           const msg = { id: uid(), role: 'assistant', content: fullText, stats };
           setMessages((prev) => {
@@ -91,6 +84,12 @@ export default function App() {
             saveChat({ id: chatId, messages: updated, title: text.slice(0, 50), project: workspace.projectName || null }).catch(() => {});
             return updated;
           });
+          // Final HTML extraction for canvas
+          const htmlMatch = fullText.match(/```(?:html|HTML)\n([\s\S]*?)```/);
+          if (htmlMatch) {
+            setCanvasHtml(htmlMatch[1]);
+            setCanvasTitle(text.slice(0, 40));
+          }
         } else if (error) {
           setMessages((prev) => [...prev, { id: uid(), role: 'assistant', content: `⚠️ ${error}` }]);
         }
@@ -103,12 +102,7 @@ export default function App() {
   const handleLoadChat = useCallback((chat) => {
     setChatId(chat.id);
     setMessages(chat.messages || []);
-    // Ensure engine is active after load
-    if (llm.status === 'idle' || llm.status === 'needsKey') {
-      // try to restore key
-      getSetting('key_gemini', '').then(k => { if (k) { llm.setKey('gemini', k); setAgentApiKey(k); } });
-    }
-  }, [llm]);
+  }, []);
 
   const handleInject = useCallback(async (path, code) => {
     if (!workspace.isOpen) return false;
@@ -117,10 +111,10 @@ export default function App() {
     return ok;
   }, [workspace]);
 
-  const handlePreview = useCallback((html, title, files = {}) => { 
-    setPreviewHtml(html); 
-    setPreviewTitle(title);
-    setPreviewFiles(files);
+  const handlePreview = useCallback((html, title) => {
+    setCanvasHtml(html);
+    setCanvasTitle(title);
+    setCanvasStreaming(false);
   }, []);
 
   const handleNewChat = useCallback(() => {
@@ -145,13 +139,8 @@ export default function App() {
   return (
     <div className="h-screen h-[100dvh] flex flex-col bg-void-950 text-steel-100 overflow-hidden scan-overlay hex-bg">
       <Header llmStatus={llm.status} projectName={workspace.projectName}
-        activeEngine={llm.activeEngine} activeModel={llm.activeModel}
-        onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
-        onSettingsOpen={() => setSettingsOpen(true)}
-        onSelectModel={llm.selectModel}
-        onOpenAgent={() => setAgentOpen(true)}
-        onOpenMultiAgent={() => setMultiAgentOpen(true)}
-        onOpenRateLimit={() => setRateLimitOpen(true)} />
+        activeEngine={llm.activeEngine} onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
+        onSettingsOpen={() => setSettingsOpen(true)} />
 
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)}
         tree={workspace.tree} projectName={workspace.projectName}
@@ -160,61 +149,40 @@ export default function App() {
         indexStats={workspace.indexStats} isIndexing={workspace.isIndexing}
         onReindex={workspace.reindex} hasGit={workspace.hasGit} fsSupported={workspace.fsSupported} />
 
-      <main className="flex-1 min-h-0 relative">
-        <ChatView messages={messages} onSend={handleSend}
-          llmStatus={llm.status} loadProgress={llm.loadProgress} loadText={llm.loadText}
-          statusMessage={llm.statusMessage} activeEngine={llm.activeEngine}
-          onInitModel={llm.initModel} onResetChat={handleNewChat}
-          onInject={handleInject} onPreview={handlePreview}
-          projectOpen={workspace.isOpen} projectName={workspace.projectName}
-          onOpenProject={workspace.openProject} fsSupported={workspace.fsSupported}
-          onOpenSettings={() => setSettingsOpen(true)}
-          onOpenAgent={() => setAgentOpen(true)}
-          webSearchOn={llm.webSearchOn} isSearching={llm.isSearching}
-          onToggleSearch={llm.toggleSearch} />
+      <main className="flex-1 min-h-0 relative flex">
+        <div className={`flex flex-col min-h-0 transition-all duration-300 ${canvasHtml ? 'w-1/2' : 'w-full'}`}>
+          <ChatView messages={messages} onSend={handleSend}
+            llmStatus={llm.status} loadProgress={llm.loadProgress} loadText={llm.loadText}
+            statusMessage={llm.statusMessage} activeEngine={llm.activeEngine}
+            onInitModel={llm.initModel} onResetChat={handleNewChat}
+            onInject={handleInject} onPreview={handlePreview}
+            projectOpen={workspace.isOpen} projectName={workspace.projectName}
+            onOpenProject={workspace.openProject} fsSupported={workspace.fsSupported}
+            onOpenSettings={() => setSettingsOpen(true)}
+            webSearchOn={llm.webSearchOn} isSearching={llm.isSearching}
+            onToggleSearch={llm.toggleSearch} />
+        </div>
+
+        {canvasHtml && (
+          <div className="w-1/2 min-h-0 border-l border-white/[0.06]">
+            <LiveCanvas
+              html={canvasHtml}
+              title={canvasTitle}
+              isStreaming={canvasStreaming}
+              onClose={() => { setCanvasHtml(null); setCanvasTitle(''); }}
+            />
+          </div>
+        )}
       </main>
 
       {editingFile && <CodeEditor path={editingFile} initialContent={editingContent}
         onSave={handleEditorSave} onClose={() => setEditingFile(null)} />}
-      {previewHtml && <HtmlPreview html={previewHtml} title={previewTitle} files={previewFiles}
-        onClose={() => { setPreviewHtml(null); setPreviewFiles({}); }} />}
+      {previewHtml && <HtmlPreview html={previewHtml} title={previewTitle}
+        onClose={() => setPreviewHtml(null)} />}
       <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}
-        onSelectEngine={llm.initModel} onSetKey={(p, k) => { llm.setKey(p, k); setAgentKeys(prev => ({...prev, [p]: k})); setAgentApiKey(k); }}
+        onSelectEngine={llm.initModel} onSetKey={llm.setKey}
         activeEngine={llm.activeEngine} llmStatus={llm.status}
         activeModel={llm.activeModel} onSelectModel={llm.selectModel} />
-      <RateLimitMonitor
-        isOpen={rateLimitOpen} onClose={() => setRateLimitOpen(false)}
-        activeEngine={llm.activeEngine} activeModel={llm.activeModel}
-      />
-      <MultiAgentPanel
-        isOpen={multiAgentOpen} onClose={() => setMultiAgentOpen(false)}
-        isRunning={multiAgent.isRunning} agents={multiAgent.agents}
-        files={multiAgent.files} activeAgent={multiAgent.activeAgent}
-        onRun={(task) => {
-              const eng = llm.activeEngine || 'gemini';
-              const key = agentKeys[eng] || agentApiKey;
-              const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free' };
-              const model = llm.activeModel || defaultModels[eng] || 'gemini-2.5-flash';
-              multiAgent.runMultiAgent(task, key, eng, model, handleInject, handlePreview);
-            }}
-        onStop={multiAgent.stopMultiAgent} onClear={multiAgent.clearMultiAgent}
-        apiKey={agentKeys[llm.activeEngine] || agentApiKey} onPreviewFile={handlePreview}
-      />
-      <AgentPanel
-        isOpen={agentOpen} onClose={() => setAgentOpen(false)}
-        isRunning={agent.isRunning} steps={agent.steps} files={agent.files}
-        onRun={(task) => {
-              const eng = llm.activeEngine || 'gemini';
-              const key = agentKeys[eng] || agentApiKey;
-              const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free' };
-              const model = llm.activeModel || defaultModels[eng] || 'gemini-2.5-flash';
-              agent.runAgent(task, key, eng, model, handleInject, handlePreview);
-            }}
-        onStop={agent.stopAgent} onClear={agent.clearAgent}
-        apiKey={agentKeys[llm.activeEngine] || agentApiKey} activeModel={llm.activeModel}
-        onPreviewFile={handlePreview}
-      />
     </div>
   );
 }
-// Agent panel appended via patch
