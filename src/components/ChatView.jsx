@@ -188,9 +188,12 @@ export default function ChatView({
             {(isIdle || isError) && (
               <div className="w-full max-w-[300px] space-y-2">
                 {[
-                  { id: 'gemini', icon: '✦', name: 'Google Gemini', desc: 'Free · Supports doc uploads', color: 'border-blue-400/20' },
-                  { id: 'groq', icon: '⚡', name: 'Groq', desc: 'Free · Fastest inference', color: 'border-orange-400/20' },
-                  { id: 'openrouter', icon: '◈', name: 'OpenRouter', desc: 'Free models · DeepSeek, Qwen', color: 'border-purple-400/20' },
+                  { id: 'gemini',      icon: '✦',  name: 'Google Gemini', desc: 'Free · 1M context · Web search', color: 'border-blue-400/20' },
+                  { id: 'groq',        icon: '⚡',  name: 'Groq',          desc: 'Free · Fastest · GPT-OSS 120B', color: 'border-orange-400/20' },
+                  { id: 'cerebras',    icon: '🧠',  name: 'Cerebras',      desc: 'Free · 2000 tok/s · Llama 70B', color: 'border-cyan-400/20' },
+                  { id: 'sambanova',   icon: '⚙',   name: 'SambaNova',     desc: 'Free · Llama 4 · 10M context',  color: 'border-emerald-400/20' },
+                  { id: 'huggingface', icon: '🤗',  name: 'Hugging Face',  desc: 'Free token · Qwen Coder 32B',   color: 'border-yellow-400/20' },
+                  { id: 'openrouter',  icon: '◈',   name: 'OpenRouter',    desc: 'Free models · DeepSeek, Qwen',  color: 'border-purple-400/20' },
                 ].map((p) => (
                   <button key={p.id} onClick={onOpenSettings}
                     className={`w-full flex items-center gap-3 p-3 rounded-xl border ${p.color} bg-white/[0.01] hover:bg-white/[0.03] transition-all active:scale-[0.98]`}>
@@ -214,7 +217,7 @@ export default function ChatView({
                   <Cpu size={20} className="text-neon-green" />
                   <div className="text-left">
                     <span className="text-sm font-medium text-steel-200">Local WASM (Offline)</span>
-                    <p className="text-[10px] text-steel-500">No key · ~900MB · Works offline</p>
+                    <p className="text-[10px] text-steel-500">No key · Qwen2.5-Coder 3B · ~1.9GB</p>
                   </div>
                 </button>
                 {isError && <div className="mt-2 px-3 py-2 rounded-lg bg-neon-pink/5 border border-neon-pink/15"><p className="text-[10px] font-mono text-neon-pink/80">{statusMessage}</p></div>}
