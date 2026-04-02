@@ -398,11 +398,12 @@ async function initWASM(modelId) {
   const model = WASM_MODELS[selectedWasmModelId] || WASM_MODELS['qwen2.5-coder-3b'];
   report('status', { status: 'loading', message: `Loading ${model.name}...` });
   try {
-    const { Wllama } = await import('https://esm.run/@wllama/wllama@2.3.0');
+    const wllamaModule = await import('https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.0/dist/index.js');
+    const Wllama = wllamaModule.Wllama || wllamaModule.default?.Wllama || wllamaModule.default;
     engine = new Wllama({
-      'single-thread/wllama.wasm': 'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.0/src/single-thread/wllama.wasm',
-      'multi-thread/wllama.wasm': 'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.0/src/multi-thread/wllama.wasm',
-      'multi-thread/wllama.worker.mjs': 'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.0/src/multi-thread/wllama.worker.mjs',
+      'single-thread/wllama.wasm': 'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.0/dist/single-thread/wllama.wasm',
+      'multi-thread/wllama.wasm': 'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.0/dist/multi-thread/wllama.wasm',
+      'multi-thread/wllama.worker.mjs': 'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.0/dist/multi-thread/wllama.worker.mjs',
     });
     report('status', { status: 'loading', message: `Downloading ${model.name} (${model.size})...` });
     await engine.loadModelFromUrl(model.url, {
