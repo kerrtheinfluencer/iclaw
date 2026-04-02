@@ -51,16 +51,28 @@ const PROVIDERS = {
       { id: 'Qwen3-32B',                           label: 'Qwen 3 32B',     tier: 'Multilingual' },
     ],
   },
-  chutes: {
-    name: 'Chutes AI (No Key!)',
-    defaultModel: 'deepseek-ai/DeepSeek-V3-0324',
+  huggingface: {
+    name: 'Hugging Face',
+    defaultModel: 'Qwen/Qwen2.5-Coder-32B-Instruct',
     models: [
-      { id: 'deepseek-ai/DeepSeek-V3-0324',          label: 'DeepSeek V3',      tier: 'No Key · Best Coding' },
-      { id: 'deepseek-ai/DeepSeek-R1',               label: 'DeepSeek R1',      tier: 'No Key · Thinking' },
-      { id: 'Qwen/Qwen3-235B-A22B',                  label: 'Qwen 3 235B',      tier: 'No Key · Massive' },
-      { id: 'Qwen/Qwen3-32B',                        label: 'Qwen 3 32B',       tier: 'No Key · Fast' },
-      { id: 'google/gemma-3-27b-it',                 label: 'Gemma 3 27B',      tier: 'No Key · Smart' },
-      { id: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct', label: 'Llama 4 Maverick', tier: 'No Key · 10M ctx' },
+      { id: 'Qwen/Qwen2.5-Coder-32B-Instruct',      label: 'Qwen2.5 Coder 32B', tier: 'Best Coding' },
+      { id: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-32B', label: 'DeepSeek R1 32B', tier: 'Thinking' },
+      { id: 'meta-llama/Llama-3.3-70B-Instruct',    label: 'Llama 3.3 70B',    tier: 'Powerful' },
+      { id: 'google/gemma-3-27b-it',                label: 'Gemma 3 27B',      tier: 'Smart' },
+      { id: 'mistralai/Mistral-7B-Instruct-v0.3',   label: 'Mistral 7B',       tier: 'Fast' },
+      { id: 'microsoft/Phi-3.5-mini-instruct',      label: 'Phi-3.5 Mini',     tier: 'Efficient' },
+    ],
+  },
+  together: {
+    name: 'Together AI',
+    defaultModel: 'deepseek-ai/DeepSeek-V3',
+    models: [
+      { id: 'deepseek-ai/DeepSeek-V3',              label: 'DeepSeek V3',      tier: 'Best Coding' },
+      { id: 'deepseek-ai/DeepSeek-R1',              label: 'DeepSeek R1',      tier: 'Thinking' },
+      { id: 'Qwen/Qwen3-235B-A22B',                 label: 'Qwen 3 235B',      tier: 'Massive' },
+      { id: 'Qwen/Qwen2.5-Coder-32B-Instruct',      label: 'Qwen2.5 Coder 32B',tier: 'Code' },
+      { id: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct', label: 'Llama 4 Maverick', tier: '10M ctx' },
+      { id: 'google/gemma-3-27b-it',                label: 'Gemma 3 27B',      tier: 'Smart' },
     ],
   },
   openrouter: {
@@ -117,6 +129,8 @@ CODE QUALITY — always produce:
 - For web apps: stunning visuals with animations, transitions, hover states
 - Mobile-first responsive layouts using CSS Grid/Flexbox
 - Performance-optimized code (debouncing, event delegation, RAF for animations)
+- ALWAYS write self-contained single HTML files — all CSS and JS must be inline inside the HTML file, never reference external script.js or style.css files
+- For Three.js/canvas apps: load THREE via CDN script tag, write all JS inline in a <script> tag at bottom of body
 
 FORMATTING:
 - Always wrap code in fenced blocks with language tags
@@ -304,30 +318,49 @@ async function inferSambaNova(messages, model) {
   return { fullText, tokens: data.usage?.completion_tokens || fullText.split(' ').length, elapsed };
 }
 
-// ─── Chutes AI (No API Key Required!) ───────────────────────────────
+// ─── Hugging Face Inference API ─────────────────────────────────────
 
-async function inferChutes(messages, model) {
-  const m = model || PROVIDERS.chutes.defaultModel;
+async function inferHuggingFace(messages, model) {
+  const key = apiKeys.huggingface;
+  if (!key) throw new Error('HuggingFace token not set. Get one free at huggingface.co/settings/tokens');
+  const m = model || PROVIDERS.huggingface.defaultModel;
   const startTime = performance.now();
   const enrichedMessages = await enrichWithSearch(messages);
-  const res = await fetch('https://llm.chutes.ai/v1/chat/completions', {
+  // Use serverless inference API (OpenAI compatible)
+  const res = await fetch(`https://api-inference.huggingface.co/models/${m}/v1/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer chutes-free-public',
-    },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
     body: JSON.stringify({
       model: m,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        ...enrichedMessages.map(({ role, content }) => ({ role, content })),
-      ],
-      temperature: 0.3,
-      max_tokens: 8192,
-      stream: false,
+      messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...enrichedMessages.map(({ role, content }) => ({ role, content }))],
+      temperature: 0.3, max_tokens: 4096,
     }),
   });
-  if (!res.ok) throw new Error(`Chutes ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(`HuggingFace ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  const fullText = data.choices?.[0]?.message?.content || '';
+  const elapsed = (performance.now() - startTime) / 1000;
+  return { fullText, tokens: data.usage?.completion_tokens || fullText.split(' ').length, elapsed };
+}
+
+// ─── Together AI ─────────────────────────────────────────────────────
+
+async function inferTogether(messages, model) {
+  const key = apiKeys.together;
+  if (!key) throw new Error('Together AI key not set. Get $25 free at api.together.ai');
+  const m = model || PROVIDERS.together.defaultModel;
+  const startTime = performance.now();
+  const enrichedMessages = await enrichWithSearch(messages);
+  const res = await fetch('https://api.together.xyz/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+    body: JSON.stringify({
+      model: m,
+      messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...enrichedMessages.map(({ role, content }) => ({ role, content }))],
+      temperature: 0.3, max_tokens: 8192,
+    }),
+  });
+  if (!res.ok) throw new Error(`Together ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   const fullText = data.choices?.[0]?.message?.content || '';
   const elapsed = (performance.now() - startTime) / 1000;
@@ -406,10 +439,10 @@ async function initEngine(engineId) {
     if (engineId === 'wasm') {
       engine = null; // always reload when switching wasm models
       await initWASM(activeModel);
-    } else if (engineId === 'chutes') {
-      engineType = 'chutes';
-      activeModel = activeModel || PROVIDERS.chutes.defaultModel;
-      report('status', { status: 'ready', message: 'Chutes AI ready — no API key needed!' });
+    } else if (engineId === 'huggingface') {
+      if (!apiKeys.huggingface) { report('status', { status: 'needsKey', message: 'Enter your free HuggingFace token.', provider: 'huggingface' }); } else { engineType = 'huggingface'; activeModel = activeModel || PROVIDERS.huggingface.defaultModel; report('status', { status: 'ready', message: 'HuggingFace ready.' }); }
+    } else if (engineId === 'together') {
+      if (!apiKeys.together) { report('status', { status: 'needsKey', message: 'Enter your Together AI key.', provider: 'together' }); } else { engineType = 'together'; activeModel = activeModel || PROVIDERS.together.defaultModel; report('status', { status: 'ready', message: 'Together AI ready.' }); }
     } else if (PROVIDERS[engineId]) {
       if (!apiKeys[engineId]) {
         report('status', { status: 'needsKey', message: `Enter your free ${PROVIDERS[engineId].name} API key.`, provider: engineId });
@@ -444,7 +477,8 @@ async function runInference({ messages, requestId, ragContext, model, attachment
     else if (engineType === 'groq')   result = await inferGroq(contextMessages, m);
     else if (engineType === 'cerebras')  result = await inferCerebras(contextMessages, m);
     else if (engineType === 'sambanova') result = await inferSambaNova(contextMessages, m);
-    else if (engineType === 'chutes')    result = await inferChutes(contextMessages, m);
+    else if (engineType === 'huggingface') result = await inferHuggingFace(contextMessages, m);
+    else if (engineType === 'together')    result = await inferTogether(contextMessages, m);
     else if (engineType === 'openrouter') result = await inferOpenRouter(contextMessages, m);
 
     // Simulate streaming for cloud providers
