@@ -5,6 +5,24 @@ import {
 } from 'lucide-react';
 import ChatMessage from './ChatMessage.jsx';
 
+// Wrap JS for inline preview (no external CDN needed for srcdoc)
+function wrapJsPreview(code) {
+  const libs = [];
+  if (code.includes('THREE')) libs.push('https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js');
+  if (code.includes('Chart')) libs.push('https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js');
+  if (code.includes('PIXI')) libs.push('https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js');
+  if (code.includes('d3.')) libs.push('https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js');
+  if (code.includes('anime')) libs.push('https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js');
+  if (code.includes('gsap') || code.includes('GSAP')) libs.push('https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js');
+  const needsCanvas = code.includes('THREE') || code.includes('PIXI') || code.includes('canvas') || code.includes('getContext');
+  const cleaned = code.replace(/^import\s+.*$/gm, '').replace(/^export\s+/gm, '');
+  const urlsJson = JSON.stringify(libs);
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>*{margin:0;box-sizing:border-box}body{background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;overflow:hidden}canvas{display:block;}</style>
+</head><body>${needsCanvas ? '<canvas id="canvas" style="width:100vw;height:100%;display:block;"></canvas>' : '<div id="app" style="padding:16px;min-height:100vh;"></div>'}
+<script>(function(){var u=${urlsJson};function run(){var c=document.getElementById('canvas');if(c){c.width=window.innerWidth;c.height=window.innerHeight;}try{(function(){${cleaned}})();}catch(e){document.body.innerHTML='<div style="color:#f87171;padding:16px;font-family:monospace"><b>Error:</b> '+e.message+'</div>';}}function l(i){if(i>=u.length){run();return;}var s=document.createElement('script');s.src=u[i];s.onload=function(){l(i+1);};s.onerror=function(){l(i+1);};document.head.appendChild(s);}l(0);})();<\/script></body></html>`;
+}
+
 export default function ChatView({
   messages, onSend, llmStatus, loadProgress, loadText,
   onInitModel, onResetChat, onInject, onPreview,
@@ -14,6 +32,8 @@ export default function ChatView({
 }) {
   const [input, setInput] = useState('');
   const [streamingText, setStreamingText] = useState('');
+  const [autoPreviewHtml, setAutoPreviewHtml] = useState(null);
+  const [showAutoPreview, setShowAutoPreview] = useState(false);
   const [attachments, setAttachments] = useState([]); // { name, mimeType, base64, size }
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
@@ -28,6 +48,23 @@ export default function ChatView({
       requestAnimationFrame(() => { scrollRef.current.scrollTop = scrollRef.current.scrollHeight; });
     }
   }, [messages, streamingText]);
+
+  // Auto canvas preview — detect HTML/JS in last assistant message
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg || lastMsg.role !== 'assistant') return;
+    const content = lastMsg.content || '';
+    // Look for full HTML doc or substantial JS with canvas/3D
+    const htmlMatch = content.match(/```html\n([\s\S]{200,}?)```/);
+    const jsMatch = content.match(/```(?:javascript|js)\n([\s\S]{200,}?)```/);
+    if (htmlMatch) {
+      setAutoPreviewHtml(htmlMatch[1]);
+      setShowAutoPreview(true);
+    } else if (jsMatch && (jsMatch[1].includes('THREE') || jsMatch[1].includes('canvas') || jsMatch[1].includes('PIXI') || jsMatch[1].includes('Chart') || jsMatch[1].includes('animate'))) {
+      setAutoPreviewHtml('__JS__' + jsMatch[1]);
+      setShowAutoPreview(true);
+    }
+  }, [messages]);
 
   const resizeTextarea = useCallback(() => {
     const ta = textareaRef.current;
@@ -127,6 +164,10 @@ export default function ChatView({
     return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
   };
 
+  const previewContent = autoPreviewHtml?.startsWith('__JS__')
+    ? wrapJsPreview(autoPreviewHtml.replace('__JS__', ''))
+    : autoPreviewHtml;
+
   return (
     <div className="flex flex-col h-full">
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-4 scroll-smooth">
@@ -225,6 +266,36 @@ export default function ChatView({
           )}
         </div>
       </div>
+
+      {/* Auto Canvas Preview */}
+      {showAutoPreview && previewContent && (
+        <div className="shrink-0 border-t border-neon-green/20 bg-[#0a0a12]" style={{height: '45vh'}}>
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/5">
+            <span className="text-[10px] font-mono text-neon-green/70 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-neon-green animate-pulse" />
+              Live Preview
+            </span>
+            <div className="flex items-center gap-1">
+              <button onClick={() => onPreview?.(previewContent, 'preview')}
+                className="text-[9px] font-mono text-steel-500 hover:text-steel-300 px-2 py-0.5 rounded border border-white/[0.06] hover:border-white/20 transition-all">
+                Fullscreen
+              </button>
+              <button onClick={() => setShowAutoPreview(false)}
+                className="text-[9px] font-mono text-steel-600 hover:text-neon-pink px-2 py-0.5 rounded border border-white/[0.06] transition-all">
+                ✕
+              </button>
+            </div>
+          </div>
+          <iframe
+            key={previewContent.slice(0, 50)}
+            srcDoc={previewContent}
+            sandbox="allow-scripts allow-same-origin allow-modals allow-pointer-lock"
+            className="w-full border-0 bg-white"
+            style={{height: 'calc(100% - 32px)'}}
+            title="Auto Preview"
+          />
+        </div>
+      )}
 
       {/* Input area */}
       <div className="safe-bottom border-t border-white/5 bg-void-950/90 backdrop-blur-xl px-3 pt-2 pb-2">

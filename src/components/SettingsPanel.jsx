@@ -111,27 +111,28 @@ export default function SettingsPanel({ isOpen, onClose, onSelectEngine, onSetKe
           <p className="text-[11px] text-neon-green/80 font-medium">All engines are 100% free. No credit card required.</p>
         </div>
 
-        {/* Puter — no key needed */}
-        <section className={`rounded-xl border p-3 space-y-2 transition-all ${activeEngine === 'puter' ? 'border-neon-green/30 bg-neon-green/[0.04]' : 'border-white/[0.06]'}`}>
-          <button onClick={() => onSelectEngine('puter')} className="w-full flex items-center justify-between">
+        {/* Chutes — no key needed */}
+        <section className={`rounded-xl border p-3 space-y-2 transition-all ${activeEngine === 'chutes' ? 'border-neon-green/30 bg-neon-green/[0.04]' : 'border-white/[0.06]'}`}>
+          <button onClick={() => onSelectEngine('chutes')} className="w-full flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-lg">🆓</span>
               <div className="text-left">
-                <span className={`text-sm font-medium ${activeEngine === 'puter' ? 'text-neon-green' : 'text-steel-200'}`}>Puter — No API Key!</span>
-                <p className="text-[10px] text-steel-500">GPT-4o · Claude · Gemini · DeepSeek — all free, zero setup</p>
+                <span className={`text-sm font-medium ${activeEngine === 'chutes' ? 'text-neon-green' : 'text-steel-200'}`}>Chutes AI — No API Key!</span>
+                <p className="text-[10px] text-steel-500">DeepSeek V3/R1 · Qwen 3 235B · Gemma 3 · Llama 4 — zero setup</p>
               </div>
             </div>
-            {activeEngine === 'puter' && <Check size={14} className="text-neon-green" />}
+            {activeEngine === 'chutes' && <Check size={14} className="text-neon-green" />}
           </button>
-          {activeEngine === 'puter' && (
+          {activeEngine === 'chutes' && (
             <div className="space-y-1 pt-1 border-t border-white/[0.04]">
               <span className="text-[10px] font-mono text-steel-500 uppercase">Model</span>
               {[
-                { id: 'gpt-4o-mini', label: 'GPT-4o Mini', tier: 'Fast' },
-                { id: 'gpt-4o', label: 'GPT-4o', tier: 'Smart' },
-                { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', tier: 'Best' },
-                { id: 'deepseek-r1', label: 'DeepSeek R1', tier: 'Thinking' },
-                { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash', tier: 'Fast' },
+                { id: 'deepseek-ai/DeepSeek-V3-0324', label: 'DeepSeek V3', tier: 'Best Coding' },
+                { id: 'deepseek-ai/DeepSeek-R1', label: 'DeepSeek R1', tier: 'Thinking' },
+                { id: 'Qwen/Qwen3-235B-A22B', label: 'Qwen 3 235B', tier: 'Massive' },
+                { id: 'Qwen/Qwen3-32B', label: 'Qwen 3 32B', tier: 'Fast' },
+                { id: 'google/gemma-3-27b-it', label: 'Gemma 3 27B', tier: 'Smart' },
+                { id: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct', label: 'Llama 4 Maverick', tier: '10M ctx' },
               ].map(m => (
                 <button key={m.id} onClick={() => onSelectModel(m.id)}
                   className={`w-full flex items-center justify-between p-2 rounded-lg transition-all ${activeModel === m.id ? 'bg-neon-green/[0.08] border border-neon-green/20' : 'hover:bg-white/[0.02]'}`}>
