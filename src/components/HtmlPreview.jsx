@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X, Maximize2, Minimize2, RotateCcw, ExternalLink,
   Smartphone, Monitor, Code2, Eye,
@@ -29,58 +29,8 @@ const GLOBAL_TO_CDN = {
   'p5':      'p5',
 };
 
-// NEW: Inject CSS and JS from files object into HTML
-function injectFilesIntoHtml(html, files) {
-  if (!files || Object.keys(files).length === 0) return html;
-  
-  let processed = html;
-  
-  // Helper to inject CSS
-  const injectCSS = (filename, content) => {
-    const styleBlock = `<style data-injected="${filename}">\n/* ${filename} */\n${content}\n</style>`;
-    if (processed.includes('</head>')) {
-      processed = processed.replace('</head>', `${styleBlock}\n</head>`);
-    } else if (processed.includes('<head>')) {
-      processed = processed.replace('<head>', `<head>\n${styleBlock}`);
-    } else if (processed.includes('<html')) {
-      processed = processed.replace('<html', `<head>\n${styleBlock}\n</head>\n<html`);
-    } else {
-      processed = `<head>\n${styleBlock}\n</head>\n${processed}`;
-    }
-  };
-  
-  // Helper to inject JS
-  const injectJS = (filename, content) => {
-    const scriptBlock = `<script data-injected="${filename}">\n// ${filename}\n${content}\n</script>`;
-    if (processed.includes('</body>')) {
-      processed = processed.replace('</body>', `${scriptBlock}\n</body>`);
-    } else if (processed.includes('<body>')) {
-      processed = processed.replace('<body>', `<body>\n${scriptBlock}`);
-    } else if (processed.includes('</html>')) {
-      processed = processed.replace('</html>', `${scriptBlock}\n</html>`);
-    } else {
-      processed = `${processed}\n${scriptBlock}`;
-    }
-  };
-  
-  // Inject main files
-  if (files['styles.css']) injectCSS('styles.css', files['styles.css']);
-  if (files['script.js']) injectJS('script.js', files['script.js']);
-  
-  // Handle other CSS/JS files
-  Object.entries(files).forEach(([filename, content]) => {
-    if (filename === 'index.html') return; // Skip HTML itself
-    if (filename === 'styles.css' || filename === 'script.js') return; // Already handled
-    if (filename.endsWith('.css')) injectCSS(filename, content);
-    if (filename.endsWith('.js')) injectJS(filename, content);
-  });
-  
-  return processed;
-}
-
-function processHtml(html, files) {
-  // First inject CSS/JS from files
-  let out = files ? injectFilesIntoHtml(html, files) : html;
+function processHtml(html) {
+  let out = html;
 
   // Add viewport if missing
   if (!out.includes('name="viewport"') && out.includes('<head>')) {
@@ -133,7 +83,10 @@ function processHtml(html, files) {
     return out;
   }
 
-  // Has CDN deps — inject a loader script
+  // Has CDN deps — inject a loader script that:
+  // 1. Loads CDN scripts sequentially
+  // 2. Then re-runs all inline scripts that were collected
+  // Strategy: collect inline script contents, remove them, load CDNs, then eval inline scripts
   var inlineScripts = [];
   out = out.replace(/<script(?![^>]*src=)([^>]*)>([\s\S]*?)<\/script>/gi, function(match, attrs, content) {
     if (content.trim()) {
@@ -190,7 +143,7 @@ function processHtml(html, files) {
   return out;
 }
 
-export default function HtmlPreview({ html, title, files, onClose }) {
+export default function HtmlPreview({ html, title, onClose }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [viewMode, setViewMode] = useState('preview');
   const [deviceFrame, setDeviceFrame] = useState('mobile');
@@ -201,23 +154,13 @@ export default function HtmlPreview({ html, title, files, onClose }) {
   useEffect(() => {
     if (!html) return;
     setBlobUrl(function(prev) { if (prev) URL.revokeObjectURL(prev); return null; });
-    
-    try {
-      var processed = processHtml(html, files);
-      console.log('[HtmlPreview] Processed HTML length:', processed.length);
-      console.log('[HtmlPreview] Files injected:', Object.keys(files || {}));
-      
-      var blob = new Blob([processed], { type: 'text/html;charset=utf-8' });
-      var url = URL.createObjectURL(blob);
-      setBlobUrl(url);
-      setError(null);
-      
-      return function() { URL.revokeObjectURL(url); };
-    } catch (err) {
-      console.error('[HtmlPreview] Error processing HTML:', err);
-      setError(err.message);
-    }
-  }, [html, files, refreshKey]);
+    var processed = processHtml(html);
+    var blob = new Blob([processed], { type: 'text/html;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    setBlobUrl(url);
+    setError(null);
+    return function() { URL.revokeObjectURL(url); };
+  }, [html, refreshKey]);
 
   useEffect(() => {
     var handler = function(e) {
@@ -239,11 +182,6 @@ export default function HtmlPreview({ html, title, files, onClose }) {
             <X size={16} className="text-steel-400" />
           </button>
           <span className="text-xs font-mono text-steel-200 truncate max-w-[150px]">{title || 'Preview'}</span>
-          {files && Object.keys(files).length > 0 && (
-            <span className="text-[10px] bg-neon-green/10 text-neon-green px-1.5 py-0.5 rounded">
-              {Object.keys(files).length} files
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-1">
           <div className="flex bg-white/[0.03] rounded-lg border border-white/[0.06] p-0.5">
