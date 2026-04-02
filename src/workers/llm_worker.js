@@ -33,11 +33,12 @@ const PROVIDERS = {
   },
   cerebras: {
     name: 'Cerebras',
-    defaultModel: 'llama3.3-70b',
+    defaultModel: 'gpt-oss-120b',
     models: [
-      { id: 'llama3.3-70b',      label: 'Llama 3.3 70B', tier: '⚡ 2000 tok/s' },
-      { id: 'llama-4-scout-17b', label: 'Llama 4 Scout', tier: 'Vision · Fast' },
-      { id: 'qwen-3-32b',        label: 'Qwen 3 32B',    tier: 'Code · Thinking' },
+      { id: 'gpt-oss-120b',                      label: 'GPT-OSS 120B',   tier: 'Best · Reasoning' },
+      { id: 'llama-3.3-70b',                     label: 'Llama 3.3 70B',  tier: '2000 tok/s' },
+      { id: 'llama-4-scout-17b-16e-instruct',    label: 'Llama 4 Scout',  tier: 'Vision' },
+      { id: 'llama3.1-8b',                       label: 'Llama 3.1 8B',   tier: 'Fastest' },
     ],
   },
   sambanova: {
