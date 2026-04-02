@@ -77,11 +77,36 @@ const PROVIDERS = {
   },
 };
 
-const WASM_MODEL = {
-  url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
-  name: 'Qwen2.5-Coder-1.5B-Q4',
-  size: '~900MB',
+// WASM model options — user can switch via settings
+const WASM_MODELS = {
+  'qwen2.5-coder-3b': {
+    url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/qwen2.5-coder-3b-instruct-q4_k_m.gguf',
+    name: 'Qwen2.5-Coder-3B-Q4',
+    size: '~1.9GB',
+    desc: 'Best coding — recommended',
+  },
+  'qwen2.5-coder-1.5b': {
+    url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
+    name: 'Qwen2.5-Coder-1.5B-Q4',
+    size: '~900MB',
+    desc: 'Fast — low RAM',
+  },
+  'phi-3.5-mini': {
+    url: 'https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf',
+    name: 'Phi-3.5-Mini-Q4',
+    size: '~2.2GB',
+    desc: 'Fast reasoning',
+  },
+  'llama-3.2-3b': {
+    url: 'https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf',
+    name: 'Llama-3.2-3B-Q4',
+    size: '~2.0GB',
+    desc: 'General purpose',
+  },
 };
+
+let selectedWasmModelId = 'qwen2.5-coder-3b';
+const WASM_MODEL = WASM_MODELS[selectedWasmModelId];
 
 const SYSTEM_PROMPT = `You are iclaw, a world-class AI coding assistant with the expertise of a senior staff engineer at a top tech company.
 
@@ -334,8 +359,10 @@ async function inferOpenRouter(messages, model) {
 
 // ─── WASM ────────────────────────────────────────────────────────────
 
-async function initWASM() {
-  report('status', { status: 'loading', message: 'Loading WASM engine...' });
+async function initWASM(modelId) {
+  if (modelId) selectedWasmModelId = modelId;
+  const model = WASM_MODELS[selectedWasmModelId] || WASM_MODELS['qwen2.5-coder-3b'];
+  report('status', { status: 'loading', message: `Loading ${model.name}...` });
   try {
     const { Wllama } = await import('https://cdn.jsdelivr.net/npm/@nicepkg/wllama@latest/dist/index.esm.js');
     engine = new Wllama({
@@ -343,15 +370,16 @@ async function initWASM() {
       'multi-thread/wllama.wasm': 'https://cdn.jsdelivr.net/npm/@nicepkg/wllama@latest/dist/multi-thread/wllama.wasm',
       'multi-thread/wllama.worker.mjs': 'https://cdn.jsdelivr.net/npm/@nicepkg/wllama@latest/dist/multi-thread/wllama.worker.mjs',
     });
-    report('status', { status: 'loading', message: `Downloading model (${WASM_MODEL.size})...` });
-    await engine.loadModelFromUrl(WASM_MODEL.url, {
-      n_ctx: 2048, n_threads: 4,
+    report('status', { status: 'loading', message: `Downloading ${model.name} (${model.size})...` });
+    await engine.loadModelFromUrl(model.url, {
+      n_ctx: 4096, n_threads: 4,
       progressCallback: ({ loaded, total }) => {
         report('loadProgress', { progress: total > 0 ? loaded / total : 0, text: `${(loaded / 1024 / 1024).toFixed(0)}MB / ${(total / 1024 / 1024).toFixed(0)}MB` });
       },
     });
     engineType = 'wasm';
-    report('status', { status: 'ready', message: `${WASM_MODEL.name} loaded. Fully offline.` });
+    activeModel = selectedWasmModelId;
+    report('status', { status: 'ready', message: `${model.name} loaded. Fully offline. ${model.desc}` });
   } catch (err) { throw new Error(`WASM failed: ${err.message}`); }
 }
 
@@ -376,8 +404,8 @@ async function initEngine(engineId) {
   isLoading = true;
   try {
     if (engineId === 'wasm') {
-      if (!engine) await initWASM();
-      else report('status', { status: 'ready', message: 'WASM loaded.' });
+      engine = null; // always reload when switching wasm models
+      await initWASM(activeModel);
     } else if (engineId === 'chutes') {
       engineType = 'chutes';
       activeModel = activeModel || PROVIDERS.chutes.defaultModel;
@@ -447,7 +475,13 @@ self.onmessage = async (e) => {
       activeModel = activeModel || PROVIDERS[payload.provider]?.defaultModel;
       report('status', { status: 'ready', message: `${PROVIDERS[payload.provider]?.name || payload.provider} ready.` });
       break;
-    case 'setModel': activeModel = payload.model; report('modelChanged', { model: payload.model }); break;
+    case 'setModel':
+      activeModel = payload.model;
+      if (engineType === 'wasm' || payload.model?.startsWith('qwen2.5') || payload.model?.startsWith('phi') || payload.model?.startsWith('llama-3.2')) {
+        selectedWasmModelId = payload.model;
+        engine = null; // will reload on next inference
+      }
+      report('modelChanged', { model: payload.model }); break;
     case 'inference': await runInference(payload); break;
     case 'toggleSearch': webSearchEnabled = payload.enabled; report('searchToggled', { enabled: webSearchEnabled }); break;
     case 'reset': report('status', { status: engineType ? 'ready' : 'idle', message: engineType ? 'Ready.' : '' }); break;
