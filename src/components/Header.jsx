@@ -34,7 +34,9 @@ const engineMeta = {
   wasm: {
     icon: null, label: 'WASM', color: 'text-neon-green', border: 'border-neon-green/30',
     models: [
-      { id: 'qwen2.5-coder-1.5b', label: 'Qwen 1.5B', tier: 'Offline' },
+      { id: 'qwen2.5-coder-1.5b', label: 'Qwen 1.5B',   tier: 'Offline · Fastest' },
+      { id: 'qwen2.5-coder-3b',   label: 'Qwen 3B',     tier: 'Offline · Better' },
+      { id: 'phi-3.5-mini',       label: 'Phi-3.5 Mini', tier: 'Offline · Reasoning' },
     ],
   },
 };

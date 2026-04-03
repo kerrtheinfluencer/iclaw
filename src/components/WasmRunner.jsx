@@ -1,5 +1,16 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Loader2, Cpu, X, Download, Check, AlertTriangle } from 'lucide-react';
+
+// Keep screen awake during model download/inference on iOS
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      const lock = await navigator.wakeLock.request('screen');
+      return lock;
+    }
+  } catch {}
+  return null;
+}
 
 // ─── Single-thread only — GitHub Pages has no COOP/COEP headers ──────────────
 // Multi-thread requires SharedArrayBuffer which needs those headers.
@@ -26,7 +37,11 @@ const WASM_MODELS = {
   },
 };
 
-const SYSTEM_PROMPT = `You are iclaw, a world-class AI coding assistant. Write complete, production-ready code with no placeholders. Always wrap code in fenced blocks with language tags and start with a filename comment.`;
+const SYSTEM_PROMPT = `You are iclaw, a helpful AI assistant and world-class coding expert running locally on the user's device.
+
+For casual conversation or questions: respond naturally and concisely in plain text.
+For coding requests: write complete, production-ready code with no placeholders or TODOs. Wrap code in fenced blocks with language tags. Start each file with a filename comment.
+Always match your response style to what the user is actually asking for.`;
 
 // Singleton engine — persists across re-renders
 let _engine = null;
@@ -65,6 +80,20 @@ export function useWasmLLM() {
     setStatus('loading');
     setError(null);
     setProgress(0);
+
+    // Prevent iOS from killing the page during download
+    let wakeLock = await requestWakeLock();
+    const releaseWakeLock = async () => {
+      try { if (wakeLock) { await wakeLock.release(); wakeLock = null; } } catch {}
+    };
+
+    // Re-acquire wake lock if page becomes visible again
+    const onVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && _loading) {
+        wakeLock = await requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     try {
       // Unload previous
@@ -107,12 +136,16 @@ export function useWasmLLM() {
       setLoadedModelId(id);
       setStatus('ready');
       setProgressText(model.label + ' loaded — offline ready ✓');
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      await releaseWakeLock();
     } catch (err) {
       _loading = false;
       _engine = null;
       _loadedModelId = null;
       setStatus('error');
       setError(err.message);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      await releaseWakeLock();
     }
   }, [selectedModel]);
 
@@ -268,9 +301,14 @@ export function WasmModelPicker({ wasmLLM, onClose }) {
               <div className="h-full bg-gradient-to-r from-neon-green to-neon-cyan rounded-full transition-all duration-300"
                 style={{ width: Math.round(progress * 100) + '%' }} />
             </div>
-            <p className="text-[9px] font-mono text-steel-600 text-center">
-              {Math.round(progress * 100)}% — keep app open, don't switch tabs
+            <p className="text-[10px] font-mono text-neon-amber/80 text-center">
+              {Math.round(progress * 100)}%
             </p>
+            <div className="px-3 py-2 rounded-lg bg-neon-amber/5 border border-neon-amber/20">
+              <p className="text-[10px] font-mono text-neon-amber/90 text-center leading-relaxed">
+                ⚠️ Keep this screen open — switching apps pauses the download on iOS
+              </p>
+            </div>
           </div>
         )}
 
