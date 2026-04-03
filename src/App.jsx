@@ -226,7 +226,9 @@ export default function App() {
           onOpenProject={workspace.openProject} fsSupported={workspace.fsSupported}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenAgent={() => setAgentOpen(true)}
-          webSearchOn={llm.webSearchOn} isSearching={llm.isSearching}
+          webSearchOn={llm.webSearchOn}
+          isSearching={llm.isSearching || (llm.activeEngine === 'wasm' && wasmLLM.isSearching)}
+          searchQuery={llm.activeEngine === 'wasm' ? wasmLLM.searchQuery : ''}
           onToggleSearch={llm.toggleSearch} />
       </main>
 
