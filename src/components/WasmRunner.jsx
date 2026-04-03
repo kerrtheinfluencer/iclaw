@@ -141,12 +141,22 @@ export function useWasmLLM() {
         temperature: 0.3,
         top_p: 0.9,
         repeat_penalty: 1.1,
-        onNewToken: (_tok, piece) => {
+        onNewToken: (_tok, piece, currentText) => {
           if (abortRef.current) return;
-          if (piece) {
-            fullText += piece;
+          // wllama passes piece as Uint8Array — decode to string
+          let text = '';
+          if (typeof piece === 'string') {
+            text = piece;
+          } else if (piece instanceof Uint8Array) {
+            text = new TextDecoder().decode(piece);
+          } else if (typeof currentText === 'string') {
+            // fallback: use the full running text and diff it
+            text = currentText.slice(fullText.length);
+          }
+          if (text) {
+            fullText += text;
             tokenCount++;
-            onChunk(piece, fullText);
+            onChunk(text, fullText);
           }
         },
         stopTokens: ['<|im_end|>', '<|endoftext|>'],
