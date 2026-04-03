@@ -173,7 +173,15 @@ export default function App() {
         activeEngine={llm.activeEngine} activeModel={llm.activeModel}
         onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
         onSettingsOpen={() => setSettingsOpen(true)}
-        onSelectModel={llm.selectModel}
+        onSelectModel={(modelId) => {
+          const wasmIds = ['qwen2.5-coder-1.5b', 'qwen2.5-coder-3b', 'phi-3.5-mini'];
+          if (wasmIds.includes(modelId)) {
+            wasmLLM.setSelectedModel(modelId);
+            wasmLLM.loadModel(modelId);
+          } else {
+            llm.selectModel(modelId);
+          }
+        }}
         onOpenAgent={() => setAgentOpen(true)}
         onOpenMultiAgent={() => setMultiAgentOpen(true)}
         onOpenRateLimit={() => setRateLimitOpen(true)} />
@@ -209,7 +217,11 @@ export default function App() {
       <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}
         onSelectEngine={llm.initModel} onSetKey={(p, k) => { llm.setKey(p, k); setAgentKeys(prev => ({...prev, [p]: k})); setAgentApiKey(k); }}
         activeEngine={llm.activeEngine} llmStatus={llm.status}
-        activeModel={llm.activeModel} onSelectModel={llm.selectModel} />
+        activeModel={llm.activeModel} onSelectModel={(modelId) => {
+          const wasmIds = ['qwen2.5-coder-1.5b', 'qwen2.5-coder-3b', 'phi-3.5-mini'];
+          if (wasmIds.includes(modelId)) { wasmLLM.setSelectedModel(modelId); wasmLLM.loadModel(modelId); }
+          else { llm.selectModel(modelId); }
+        }} />
       <RateLimitMonitor
         isOpen={rateLimitOpen} onClose={() => setRateLimitOpen(false)}
         activeEngine={llm.activeEngine} activeModel={llm.activeModel}
