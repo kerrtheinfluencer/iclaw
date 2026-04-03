@@ -1,4 +1,5 @@
 import { getSetting } from '../utils/db.js';
+import { callWasm } from '../components/WasmRunner.jsx';
 import { callProviderQueued, delay } from '../utils/requestQueue.js';
 /**
  * iclaw Agent — Browser-side agentic loop
@@ -81,6 +82,7 @@ const CORS_PROXY = 'https://corsproxy.io/?url=';
 const SEARXNG_INSTANCES = ['https://search.sapti.me', 'https://searx.be', 'https://paulgo.io'];
 
 async function browserSearch(query) {
+  // Try SearXNG instances first
   for (const instance of SEARXNG_INSTANCES) {
     try {
       const url = `${instance}/search?q=${encodeURIComponent(query)}&format=json&categories=general&language=en`;
@@ -96,7 +98,39 @@ async function browserSearch(query) {
       }
     } catch { continue; }
   }
-  return 'No results found.';
+
+  // Fallback: DuckDuckGo Instant Answers API
+  try {
+    const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+    const res = await fetch(CORS_PROXY + encodeURIComponent(ddgUrl), {
+      signal: AbortSignal.timeout(6000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const parts = [];
+      if (data.Abstract) parts.push(`Summary: ${data.Abstract}\nSource: ${data.AbstractURL}`);
+      if (data.Answer) parts.push(`Answer: ${data.Answer}`);
+      if (data.RelatedTopics?.length > 0) {
+        parts.push(data.RelatedTopics.slice(0, 3)
+          .filter(t => t.Text)
+          .map((t, i) => `[${i+1}] ${t.Text}`)
+          .join('\n'));
+      }
+      if (parts.length > 0) return parts.join('\n\n');
+    }
+  } catch {}
+
+  // Fallback: Wikipedia API for factual queries
+  try {
+    const wikiUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query.split(' ').slice(0,3).join('_'))}`;
+    const res = await fetch(wikiUrl, { signal: AbortSignal.timeout(5000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.extract) return `Wikipedia: ${data.title}\n${data.extract.slice(0, 500)}\nURL: ${data.content_urls?.desktop?.page || ''}`;
+    }
+  } catch {}
+
+  return 'No search results found. Try a more specific query.';
 }
 
 
@@ -364,15 +398,21 @@ Max ${MAX_STEPS} steps. Be efficient but never sacrifice quality.`;
       stepCount++;
 
       try {
-        // Call active provider via queue with backoff
+        // Call active provider — WASM or cloud
         let rawText;
         try {
-          rawText = await callProviderQueued(
-            apiKey, engine, model, AGENT_SYSTEM, messages, 0.2,
-            (retryMsg) => updateLastStep({ status: 'retrying', label: retryMsg })
-          );
+          if (engine === 'wasm' || apiKey === 'wasm') {
+            addStep({ type: 'think', status: 'running', label: 'Thinking locally...' });
+            rawText = await callWasm(messages, AGENT_SYSTEM);
+            updateLastStep({ status: 'done', label: 'Local inference complete' });
+          } else {
+            rawText = await callProviderQueued(
+              apiKey, engine, model, AGENT_SYSTEM, messages, 0.2,
+              (retryMsg) => updateLastStep({ status: 'retrying', label: retryMsg })
+            );
+          }
         } catch(fetchErr) {
-          addStep({ type: 'error', status: 'error', label: `API error: ${fetchErr.message.slice(0,80)}`, detail: fetchErr.message });
+          addStep({ type: 'error', status: 'error', label: `Error: ${fetchErr.message.slice(0,80)}`, detail: fetchErr.message });
           break;
         }
 

@@ -2,11 +2,13 @@ import { useState, useRef, useCallback } from 'react';
 import { uid } from '../utils/codeParser.js';
 import { getSetting } from '../utils/db.js';
 import { callProviderQueued, delay } from '../utils/requestQueue.js';
+import { callWasm } from '../components/WasmRunner.jsx';
 
 const CORS_PROXY = 'https://corsproxy.io/?url=';
 const SEARXNG_INSTANCES = ['https://search.sapti.me', 'https://searx.be', 'https://paulgo.io'];
 
 async function browserSearch(query) {
+  // Try SearXNG
   for (const instance of SEARXNG_INSTANCES) {
     try {
       const url = `${instance}/search?q=${encodeURIComponent(query)}&format=json&categories=general&language=en`;
@@ -18,6 +20,27 @@ async function browserSearch(query) {
       }
     } catch { continue; }
   }
+  // Fallback: DuckDuckGo
+  try {
+    const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+    const res = await fetch(CORS_PROXY + encodeURIComponent(ddgUrl), { signal: AbortSignal.timeout(5000) });
+    if (res.ok) {
+      const data = await res.json();
+      const parts = [];
+      if (data.Abstract) parts.push(`Summary: ${data.Abstract}`);
+      if (data.Answer) parts.push(`Answer: ${data.Answer}`);
+      if (parts.length > 0) return parts.join('\n\n');
+    }
+  } catch {}
+  // Fallback: Wikipedia
+  try {
+    const wikiUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query.split(' ').slice(0,3).join('_'))}`;
+    const res = await fetch(wikiUrl, { signal: AbortSignal.timeout(5000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.extract) return `Wikipedia: ${data.title}\n${data.extract.slice(0, 500)}`;
+    }
+  } catch {}
   return null;
 }
 
@@ -133,11 +156,16 @@ export function useMultiAgent() {
       updateLastStep(agentName, { status: 'retrying', label: msg });
     };
 
-    const result = await callProviderQueued(
-      apiKey, engine, model, system,
-      [{ role: 'user', content: userMessage }],
-      0.3, onRetry
-    );
+    let result;
+    if (engine === 'wasm' || apiKey === 'wasm') {
+      result = await callWasm([{ role: 'user', content: userMessage }], system);
+    } else {
+      result = await callProviderQueued(
+        apiKey, engine, model, system,
+        [{ role: 'user', content: userMessage }],
+        0.3, onRetry
+      );
+    }
 
     updateLastStep(agentName, { status: 'done', label: 'Complete', detail: result.slice(0, 200) + '...' });
     updateAgent(agentName, { status: 'done', output: result });
