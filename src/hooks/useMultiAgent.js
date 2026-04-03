@@ -204,11 +204,7 @@ export function useMultiAgent() {
       updateAgent('coder', { status: 'running' });
       addStep('coder', { type: 'think', status: 'running', label: 'Generating code locally...' });
       try {
-        const localPrompt = 'Task: ' + task + '
-
-Write a complete self-contained HTML file implementing this exactly. All CSS and JS must be inline. Dark theme. Make it visually polished.
-
-Output ONLY the HTML code starting with <!DOCTYPE html>:';
+        const localPrompt = 'Task: ' + task + '\n\nWrite a complete self-contained HTML file implementing this exactly. All CSS and JS must be inline. Dark theme. Make it visually polished.\n\nOutput ONLY the HTML code starting with <!DOCTYPE html>:';
         const code = await callWasm([{ role: 'user', content: localPrompt }],
           'You are an expert web developer. Output ONLY complete HTML with no explanation, no markdown fences. Start with <!DOCTYPE html>.');
         updateLastStep('coder', { status: 'done', label: 'Code generated' });
