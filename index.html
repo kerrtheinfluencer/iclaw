@@ -10,14 +10,10 @@
     <link rel="apple-touch-icon" href="/iclaw/icons/icon-192.png" />
     <title>iclaw</title>
     <script>
-      // Unregister any old COI service workers that might be crashing the app
+      // Clean up ALL service workers silently — no reload
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.getRegistrations().then(function(regs) {
-          regs.forEach(function(reg) {
-            if (reg.active && reg.active.scriptURL.includes('coi-serviceworker')) {
-              reg.unregister();
-            }
-          });
+          regs.forEach(function(reg) { reg.unregister(); });
         });
       }
     </script>
