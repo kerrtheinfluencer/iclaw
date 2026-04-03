@@ -77,8 +77,8 @@ export default function App() {
     setMessages((prev) => [...prev, userMsg]);
     const history = [...messages, userMsg].map(({ role, content }) => ({ role, content }));
 
-    // Route to WASM if active
-    if (llm.activeEngine === 'wasm' && wasmLLM.isReady) {
+    // Route to WASM if active and model loaded
+    if (wasmLLM.isReady && (llm.activeEngine === 'wasm' || wasmLLM.loadedModel)) {
       await wasmLLM.generate(
         history,
         (delta, fullText) => { streamRef.current?.(fullText); },
