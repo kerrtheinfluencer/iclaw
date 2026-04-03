@@ -100,7 +100,7 @@ export default function AgentPanel({
   isOpen, onClose,
   isRunning, steps, files,
   onRun, onStop, onClear,
-  apiKey, activeModel,
+  apiKey, activeModel, activeEngine,
   onPreviewFile,
 }) {
   const [task, setTask] = useState('');

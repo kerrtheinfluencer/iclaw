@@ -4,25 +4,32 @@ import { Loader2, Cpu, X, Download, Check, AlertTriangle, Zap } from 'lucide-rea
 
 // ─── Models ──────────────────────────────────────────────────────────────────
 const WEBGPU_MODELS = {
+  'gemma-3-1b-webgpu': {
+    mlcId: 'gemma-3-1b-it-q4f16_1-MLC',
+    label: 'Gemma 3 1B ⚡ (Google)',
+    size: '~700MB',
+    desc: 'WebGPU · Google · best quality/size ratio',
+    type: 'webgpu',
+  },
   'qwen2.5-coder-1.5b-webgpu': {
     mlcId: 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC',
     label: 'Qwen2.5-Coder 1.5B ⚡',
     size: '~900MB',
-    desc: 'WebGPU · 15-30 tok/s on A18',
-    type: 'webgpu',
-  },
-  'smollm2-1.7b-webgpu': {
-    mlcId: 'SmolLM2-1.7B-Instruct-q4f16_1-MLC',
-    label: 'SmolLM2 1.7B ⚡',
-    size: '~1GB',
-    desc: 'WebGPU · fastest for short tasks',
+    desc: 'WebGPU · best for coding',
     type: 'webgpu',
   },
   'llama3.2-1b-webgpu': {
     mlcId: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
     label: 'Llama 3.2 1B ⚡',
     size: '~700MB',
-    desc: 'WebGPU · smallest · fastest load',
+    desc: 'WebGPU · general purpose',
+    type: 'webgpu',
+  },
+  'smollm2-1.7b-webgpu': {
+    mlcId: 'SmolLM2-1.7B-Instruct-q4f16_1-MLC',
+    label: 'SmolLM2 1.7B ⚡',
+    size: '~1GB',
+    desc: 'WebGPU · fast short tasks',
     type: 'webgpu',
   },
 };
