@@ -12,6 +12,7 @@
   "dependencies": {
     "@orama/orama": "^3.0.0",
     "@wllama/wllama": "^2.3.0",
+    "@mlc-ai/web-llm": "^0.2.78",
     "highlight.js": "^11.10.0",
     "isomorphic-git": "^1.27.1",
     "lucide-react": "^0.460.0",
