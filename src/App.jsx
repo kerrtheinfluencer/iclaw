@@ -77,8 +77,14 @@ export default function App() {
     setMessages((prev) => [...prev, userMsg]);
     const history = [...messages, userMsg].map(({ role, content }) => ({ role, content }));
 
-    // Route to WASM if active and model loaded
-    if (wasmLLM.isReady && (llm.activeEngine === 'wasm' || wasmLLM.loadedModel)) {
+    // WASM — intercept ALL wasm engine calls, never let them reach the worker
+    if (llm.activeEngine === 'wasm') {
+      if (!wasmLLM.isReady) {
+        // Model not loaded yet — show helpful message
+        const hint = { id: uid(), role: 'assistant', content: '⚠️ No offline model loaded yet. Tap **Local WASM** on the home screen to download a model first.' };
+        setMessages((prev) => [...prev, hint]);
+        return;
+      }
       await wasmLLM.generate(
         history,
         (delta, fullText) => { streamRef.current?.(fullText); },
@@ -92,7 +98,7 @@ export default function App() {
               return updated;
             });
           } else if (error) {
-            setMessages((prev) => [...prev, { id: uid(), role: 'assistant', content: `⚠️ ${error}` }]);
+            setMessages((prev) => [...prev, { id: uid(), role: 'assistant', content: '⚠️ ' + error }]);
           }
         }
       );
