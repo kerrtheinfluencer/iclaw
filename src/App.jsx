@@ -16,6 +16,28 @@ import MultiAgentPanel from './components/MultiAgentPanel.jsx';
 import { uid } from './utils/codeParser.js';
 import { saveChat, getSetting } from './utils/db.js';
 
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+  static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(err, info) { console.error('iclaw crash:', err, info); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ background: '#0a0a0f', color: '#00ff88', fontFamily: 'monospace', padding: '24px', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+          <div style={{ fontSize: '24px' }}>⚠️</div>
+          <div style={{ fontSize: '14px', fontWeight: 'bold' }}>iclaw crashed</div>
+          <div style={{ fontSize: '11px', color: '#ff006e', maxWidth: '280px', textAlign: 'center', lineHeight: 1.5 }}>{this.state.error?.message || 'Unknown error'}</div>
+          <button onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
+            style={{ marginTop: '8px', padding: '10px 20px', background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.3)', borderRadius: '8px', color: '#00ff88', cursor: 'pointer', fontSize: '12px' }}>
+            Reload App
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -168,6 +190,7 @@ export default function App() {
   }, [workspace]);
 
   return (
+    <ErrorBoundary>
     <div className="h-screen h-[100dvh] flex flex-col bg-void-950 text-steel-100 overflow-hidden scan-overlay hex-bg">
       <Header llmStatus={llm.status} projectName={workspace.projectName}
         activeEngine={llm.activeEngine} activeModel={llm.activeModel}
@@ -232,8 +255,8 @@ export default function App() {
         files={multiAgent.files} activeAgent={multiAgent.activeAgent}
         onRun={(task) => {
               const eng = llm.activeEngine || 'gemini';
-              const key = agentKeys[eng] || agentApiKey;
-              const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free' };
+              const key = eng === 'wasm' ? 'wasm' : (agentKeys[eng] || agentApiKey);
+              const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free', wasm: 'local' };
               const model = llm.activeModel || defaultModels[eng] || 'gemini-2.5-flash';
               multiAgent.runMultiAgent(task, key, eng, model, handleInject, handlePreview);
             }}
@@ -245,8 +268,8 @@ export default function App() {
         isRunning={agent.isRunning} steps={agent.steps} files={agent.files}
         onRun={(task) => {
               const eng = llm.activeEngine || 'gemini';
-              const key = agentKeys[eng] || agentApiKey;
-              const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free' };
+              const key = eng === 'wasm' ? 'wasm' : (agentKeys[eng] || agentApiKey);
+              const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free', wasm: 'local' };
               const model = llm.activeModel || defaultModels[eng] || 'gemini-2.5-flash';
               agent.runAgent(task, key, eng, model, handleInject, handlePreview);
             }}
@@ -255,6 +278,7 @@ export default function App() {
         onPreviewFile={handlePreview}
       />
     </div>
+    </ErrorBoundary>
   );
 }
 // Agent panel appended via patch
