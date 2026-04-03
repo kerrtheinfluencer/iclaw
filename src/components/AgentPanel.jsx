@@ -166,10 +166,16 @@ export default function AgentPanel({
               />
             </div>
 
-            {!apiKey && (
+            {activeEngine === 'wasm' ? (
+              <div className="px-3 py-2 rounded-lg bg-neon-green/5 border border-neon-green/15">
+                <p className="text-[10px] text-neon-green/80 font-mono">
+                  ⚡ Offline mode — using local model, no API key needed.
+                </p>
+              </div>
+            ) : !apiKey && (
               <div className="px-3 py-2 rounded-lg bg-neon-amber/5 border border-neon-amber/15">
                 <p className="text-[10px] text-neon-amber/80 font-mono">
-                  ⚠ Gemini API key required. Set it in Settings first.
+                  ⚠ API key required. Set it in Settings, or switch to Local WASM.
                 </p>
               </div>
             )}
@@ -190,7 +196,7 @@ export default function AgentPanel({
 
             <button
               onClick={handleRun}
-              disabled={!task.trim() || !apiKey}
+              disabled={!task.trim() || (!apiKey && activeEngine !== 'wasm')}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-mono text-sm font-medium transition-all active:scale-[0.98] disabled:opacity-30
                 bg-neon-green/10 border border-neon-green/25 text-neon-green hover:bg-neon-green/15"
             >
