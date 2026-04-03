@@ -3,9 +3,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   base: '/iclaw/',
-  plugins: [
-    react(),
-  ],
+  plugins: [react()],
   build: {
     target: 'esnext',
     rollupOptions: {
@@ -13,9 +11,15 @@ export default defineConfig({
         manualChunks: {
           'orama': ['@orama/orama'],
           'git': ['isomorphic-git'],
+          'wllama': ['@wllama/wllama'],
         },
       },
     },
+  },
+  // Allow Vite to handle WASM and worker files from @wllama/wllama
+  assetsInclude: ['**/*.wasm'],
+  optimizeDeps: {
+    exclude: ['@wllama/wllama'],
   },
   server: {
     headers: {
