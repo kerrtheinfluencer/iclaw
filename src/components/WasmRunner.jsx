@@ -105,22 +105,37 @@ export function useWasmLLM() {
 
       const Wllama = await getWllama();
 
-      // CRITICAL: single-thread only config
-      // Multi-thread crashes on GitHub Pages (no COOP/COEP = no SharedArrayBuffer)
-      const wllama = new Wllama({
+      // Use multi-thread if SharedArrayBuffer is available (COI service worker active)
+      // Multi-thread = 3-5x faster. Falls back to single-thread if COI not ready yet.
+      const isMultiThread = typeof SharedArrayBuffer !== 'undefined' && crossOriginIsolated;
+      const wllamaConfig = {
         'single-thread/wllama.wasm': new URL(
           '@wllama/wllama/src/single-thread/wllama.wasm',
           import.meta.url
         ).href,
-      });
+      };
+      if (isMultiThread) {
+        wllamaConfig['multi-thread/wllama.wasm'] = new URL(
+          '@wllama/wllama/src/multi-thread/wllama.wasm',
+          import.meta.url
+        ).href;
+        wllamaConfig['multi-thread/wllama.worker.mjs'] = new URL(
+          '@wllama/wllama/src/multi-thread/wllama.worker.mjs',
+          import.meta.url
+        ).href;
+      }
+      const wllama = new Wllama(wllamaConfig);
 
       const model = WASM_MODELS[id];
       setStatus('downloading');
-      setProgressText('Downloading ' + model.label + ' (' + model.size + ')...');
+      const threadMode = isMultiThread ? 'multi-thread ⚡' : 'single-thread';
+      setProgressText('Downloading ' + model.label + ' (' + model.size + ') — ' + threadMode);
 
       await wllama.loadModelFromUrl(model.url, {
         n_ctx: 2048,
-        n_threads: 1, // single thread
+        n_threads: isMultiThread
+          ? Math.min(navigator.hardwareConcurrency || 2, 4)
+          : 1,
         progressCallback: ({ loaded, total }) => {
           const pct = total > 0 ? loaded / total : 0;
           setProgress(pct);
@@ -135,7 +150,8 @@ export function useWasmLLM() {
       _loading = false;
       setLoadedModelId(id);
       setStatus('ready');
-      setProgressText(model.label + ' loaded — offline ready ✓');
+      const speedNote = isMultiThread ? ' · multi-thread ⚡' : ' · single-thread (reload for faster)';
+      setProgressText(model.label + ' loaded' + speedNote);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       await releaseWakeLock();
     } catch (err) {
