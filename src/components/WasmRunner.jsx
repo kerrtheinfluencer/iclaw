@@ -21,19 +21,19 @@ const WASM_MODELS = {
     url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf',
     label: 'Qwen2.5-Coder 1.5B',
     size: '~900MB',
-    desc: 'Fastest · recommended for iPhone',
+    desc: 'Best for iPhone · fits in Safari RAM',
   },
-  'qwen2.5-coder-3b': {
-    url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/qwen2.5-coder-3b-instruct-q4_k_m.gguf',
-    label: 'Qwen2.5-Coder 3B',
-    size: '~1.9GB',
-    desc: 'Better quality · needs 3GB free RAM',
+  'qwen2.5-coder-1.5b-q8': {
+    url: 'https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-1.5b-instruct-q8_0.gguf',
+    label: 'Qwen2.5-Coder 1.5B Q8',
+    size: '~1.6GB',
+    desc: 'Higher quality · same model, better precision',
   },
-  'phi-3.5-mini': {
-    url: 'https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf',
-    label: 'Phi-3.5 Mini',
-    size: '~2.2GB',
-    desc: 'Strong reasoning · needs 3GB free RAM',
+  'smollm2-1.7b': {
+    url: 'https://huggingface.co/bartowski/SmolLM2-1.7B-Instruct-GGUF/resolve/main/SmolLM2-1.7B-Instruct-Q4_K_M.gguf',
+    label: 'SmolLM2 1.7B',
+    size: '~1.1GB',
+    desc: 'Fast · great for short tasks',
   },
 };
 
@@ -53,6 +53,32 @@ async function getWllama() {
   // Use the npm-installed package via static import
   const mod = await import('@wllama/wllama');
   return mod.Wllama;
+}
+
+// Standalone function for agent/multiagent to call WASM directly
+export async function callWasm(messages, systemPrompt) {
+  if (!_engine) throw new Error('No WASM model loaded. Open Local WASM in settings first.');
+  let prompt = '<|im_start|>system\n' + (systemPrompt || SYSTEM_PROMPT) + '<|im_end|>\n';
+  for (const msg of messages) {
+    prompt += '<|im_start|>' + msg.role + '\n' + msg.content + '<|im_end|>\n';
+  }
+  prompt += '<|im_start|>assistant\n';
+  let fullText = '';
+  await _engine.createCompletion(prompt, {
+    nPredict: 4096,
+    temperature: 0.3,
+    top_p: 0.9,
+    repeat_penalty: 1.1,
+    onNewToken: (_tok, piece, currentText) => {
+      let text = '';
+      if (typeof piece === 'string') text = piece;
+      else if (piece instanceof Uint8Array) text = new TextDecoder().decode(piece);
+      else if (typeof currentText === 'string') text = currentText.slice(fullText.length);
+      if (text) fullText += text;
+    },
+    stopTokens: ['<|im_end|>', '<|endoftext|>'],
+  });
+  return fullText;
 }
 
 export function useWasmLLM() {
@@ -105,37 +131,22 @@ export function useWasmLLM() {
 
       const Wllama = await getWllama();
 
-      // Use multi-thread if SharedArrayBuffer is available (COI service worker active)
-      // Multi-thread = 3-5x faster. Falls back to single-thread if COI not ready yet.
-      const isMultiThread = typeof SharedArrayBuffer !== 'undefined' && crossOriginIsolated;
-      const wllamaConfig = {
+      // Single-thread only — Safari on GitHub Pages can't use SharedArrayBuffer
+      const isMultiThread = false;
+      const wllama = new Wllama({
         'single-thread/wllama.wasm': new URL(
           '@wllama/wllama/src/single-thread/wllama.wasm',
           import.meta.url
         ).href,
-      };
-      if (isMultiThread) {
-        wllamaConfig['multi-thread/wllama.wasm'] = new URL(
-          '@wllama/wllama/src/multi-thread/wllama.wasm',
-          import.meta.url
-        ).href;
-        wllamaConfig['multi-thread/wllama.worker.mjs'] = new URL(
-          '@wllama/wllama/src/multi-thread/wllama.worker.mjs',
-          import.meta.url
-        ).href;
-      }
-      const wllama = new Wllama(wllamaConfig);
+      });
 
       const model = WASM_MODELS[id];
       setStatus('downloading');
-      const threadMode = isMultiThread ? 'multi-thread ⚡' : 'single-thread';
-      setProgressText('Downloading ' + model.label + ' (' + model.size + ') — ' + threadMode);
+      setProgressText('Downloading ' + model.label + ' (' + model.size + ')...');
 
       await wllama.loadModelFromUrl(model.url, {
         n_ctx: 2048,
-        n_threads: isMultiThread
-          ? Math.min(navigator.hardwareConcurrency || 2, 4)
-          : 1,
+        n_threads: 1,
         progressCallback: ({ loaded, total }) => {
           const pct = total > 0 ? loaded / total : 0;
           setProgress(pct);
@@ -150,8 +161,7 @@ export function useWasmLLM() {
       _loading = false;
       setLoadedModelId(id);
       setStatus('ready');
-      const speedNote = isMultiThread ? ' · multi-thread ⚡' : ' · single-thread (reload for faster)';
-      setProgressText(model.label + ' loaded' + speedNote);
+      setProgressText(model.label + ' loaded — offline ready ✓');
       document.removeEventListener('visibilitychange', onVisibilityChange);
       await releaseWakeLock();
     } catch (err) {
