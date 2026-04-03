@@ -5,6 +5,7 @@ import ChatView from './components/ChatView.jsx';
 import CodeEditor from './components/CodeEditor.jsx';
 import HtmlPreview from './components/HtmlPreview.jsx';
 import SettingsPanel from './components/SettingsPanel.jsx';
+import { useWasmLLM, WasmModelPicker } from './components/WasmRunner.jsx';
 import { useLLM } from './hooks/useLLM.js';
 import { useWorkspace } from './hooks/useWorkspace.js';
 import { useAgent } from './hooks/useAgent.js';
@@ -34,6 +35,8 @@ export default function App() {
 
   const llm = useLLM();
   const workspace = useWorkspace();
+  const wasmLLM = useWasmLLM();
+  const [wasmPickerOpen, setWasmPickerOpen] = useState(false);
   const agent = useAgent();
   const multiAgent = useMultiAgent();
 
@@ -43,7 +46,7 @@ export default function App() {
     if (llm.status !== 'idle' && llm.status !== 'needsKey') return;
     keyRestoredRef.current = true;
     (async () => {
-      for (const p of ['gemini', 'groq', 'openrouter']) {
+      for (const p of ['gemini', 'groq', 'cerebras', 'sambanova', 'huggingface', 'openrouter']) {
         const key = await getSetting(`key_${p}`, '');
         if (key) {
           llm.setKey(p, key);
@@ -72,13 +75,34 @@ export default function App() {
   const handleSend = useCallback(async (text, streamRef, attachments = []) => {
     const userMsg = { id: uid(), role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
-
     const history = [...messages, userMsg].map(({ role, content }) => ({ role, content }));
+
+    // Route to WASM if active
+    if (llm.activeEngine === 'wasm' && wasmLLM.isReady) {
+      await wasmLLM.generate(
+        history,
+        (delta, fullText) => { streamRef.current?.(fullText); },
+        (fullText, stats, error) => {
+          streamRef.current?.('');
+          if (fullText) {
+            const msg = { id: uid(), role: 'assistant', content: fullText, stats };
+            setMessages((prev) => {
+              const updated = [...prev, msg];
+              saveChat({ id: chatId, messages: updated, title: text.slice(0, 50), project: workspace.projectName || null }).catch(() => {});
+              return updated;
+            });
+          } else if (error) {
+            setMessages((prev) => [...prev, { id: uid(), role: 'assistant', content: `⚠️ ${error}` }]);
+          }
+        }
+      );
+      return;
+    }
+
     let ragContext = [];
     if (workspace.isOpen) {
       try { ragContext = await workspace.searchContext(text); } catch {}
     }
-
     llm.generate(history, ragContext,
       (delta, fullText) => { streamRef.current?.(fullText); },
       (fullText, stats, error) => {
@@ -96,7 +120,7 @@ export default function App() {
       },
       attachments
     );
-  }, [messages, llm, workspace, chatId]);
+  }, [messages, llm, workspace, chatId, wasmLLM]);
 
   // Load a saved chat
   const handleLoadChat = useCallback((chat) => {
@@ -159,7 +183,7 @@ export default function App() {
         <ChatView messages={messages} onSend={handleSend}
           llmStatus={llm.status} loadProgress={llm.loadProgress} loadText={llm.loadText}
           statusMessage={llm.statusMessage} activeEngine={llm.activeEngine}
-          onInitModel={llm.initModel} onResetChat={handleNewChat}
+          onInitModel={(engine) => { if (engine === 'wasm') { setWasmPickerOpen(true); } else { llm.initModel(engine); } }} onResetChat={handleNewChat}
           onInject={handleInject} onPreview={handlePreview}
           projectOpen={workspace.isOpen} projectName={workspace.projectName}
           onOpenProject={workspace.openProject} fsSupported={workspace.fsSupported}
@@ -173,6 +197,9 @@ export default function App() {
         onSave={handleEditorSave} onClose={() => setEditingFile(null)} />}
       {previewHtml && <HtmlPreview html={previewHtml} title={previewTitle}
         onClose={() => setPreviewHtml(null)} />}
+      {wasmPickerOpen && (
+        <WasmModelPicker wasmLLM={wasmLLM} onClose={() => setWasmPickerOpen(false)} />
+      )}
       <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}
         onSelectEngine={llm.initModel} onSetKey={(p, k) => { llm.setKey(p, k); setAgentKeys(prev => ({...prev, [p]: k})); setAgentApiKey(k); }}
         activeEngine={llm.activeEngine} llmStatus={llm.status}
