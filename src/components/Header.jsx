@@ -34,11 +34,11 @@ const engineMeta = {
   wasm: {
     icon: null, label: 'WASM', color: 'text-neon-green', border: 'border-neon-green/30',
     models: [
-      { id: 'gemma-3-1b-webgpu',          label: 'Gemma 3 1B ⚡',  tier: 'WebGPU · Google' },
-      { id: 'qwen2.5-coder-1.5b-webgpu', label: 'Qwen 1.5B ⚡',   tier: 'WebGPU · Coding' },
-      { id: 'llama3.2-1b-webgpu',        label: 'Llama 3.2 1B ⚡', tier: 'WebGPU · General' },
-      { id: 'smollm2-1.7b-webgpu',       label: 'SmolLM2 1.7B ⚡', tier: 'WebGPU · Fast' },
-      { id: 'qwen2.5-coder-1.5b',        label: 'Qwen 1.5B CPU',  tier: 'CPU Fallback' },
+      { id: 'llama3.2-1b-webgpu',        label: 'Llama 3.2 1B ⚡',  tier: 'WebGPU · Fastest' },
+      { id: 'qwen2.5-coder-1.5b-webgpu', label: 'Qwen Coder 1.5B ⚡', tier: 'WebGPU · Coding' },
+      { id: 'llama3.2-3b-webgpu',        label: 'Llama 3.2 3B ⚡',  tier: 'WebGPU · Smarter' },
+      { id: 'phi3.5-mini-webgpu',        label: 'Phi 3.5 Mini ⚡',  tier: 'WebGPU · Smartest' },
+      { id: 'qwen2.5-coder-1.5b',        label: 'Qwen 1.5B CPU',   tier: 'CPU Fallback' },
     ],
   },
 };

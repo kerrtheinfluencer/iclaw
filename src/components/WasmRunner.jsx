@@ -4,32 +4,32 @@ import { Loader2, Cpu, X, Download, Check, AlertTriangle, Zap } from 'lucide-rea
 
 // ─── Models ──────────────────────────────────────────────────────────────────
 const WEBGPU_MODELS = {
-  'gemma-3-1b-webgpu': {
-    mlcId: 'gemma-3-1b-it-q4f16_1-MLC',
-    label: 'Gemma 3 1B ⚡ (Google)',
-    size: '~700MB',
-    desc: 'WebGPU · Google · best quality/size ratio',
+  'llama3.2-1b-webgpu': {
+    mlcId: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
+    label: 'Llama 3.2 1B ⚡',
+    size: '~750MB',
+    desc: 'WebGPU · confirmed working · fastest',
     type: 'webgpu',
   },
   'qwen2.5-coder-1.5b-webgpu': {
     mlcId: 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC',
     label: 'Qwen2.5-Coder 1.5B ⚡',
     size: '~900MB',
-    desc: 'WebGPU · best for coding',
+    desc: 'WebGPU · best for coding tasks',
     type: 'webgpu',
   },
-  'llama3.2-1b-webgpu': {
-    mlcId: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
-    label: 'Llama 3.2 1B ⚡',
-    size: '~700MB',
-    desc: 'WebGPU · general purpose',
+  'phi3.5-mini-webgpu': {
+    mlcId: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
+    label: 'Phi 3.5 Mini ⚡',
+    size: '~2.2GB',
+    desc: 'WebGPU · smartest · needs more RAM',
     type: 'webgpu',
   },
-  'smollm2-1.7b-webgpu': {
-    mlcId: 'SmolLM2-1.7B-Instruct-q4f16_1-MLC',
-    label: 'SmolLM2 1.7B ⚡',
-    size: '~1GB',
-    desc: 'WebGPU · fast short tasks',
+  'llama3.2-3b-webgpu': {
+    mlcId: 'Llama-3.2-3B-Instruct-q4f16_1-MLC',
+    label: 'Llama 3.2 3B ⚡',
+    size: '~1.8GB',
+    desc: 'WebGPU · best quality of small models',
     type: 'webgpu',
   },
 };
@@ -46,7 +46,89 @@ const CPU_MODELS = {
 
 const SYSTEM_PROMPT = `You are iclaw, a helpful AI assistant and expert coder running locally on device.
 For casual conversation: respond naturally and concisely.
-For coding: write complete working code, no placeholders, use fenced code blocks with language tags.`;
+For coding: write complete working code, no placeholders, use fenced code blocks with language tags.
+When web search results are provided, use them to give accurate, up-to-date answers.`;
+
+// ── Web Search for local models ──────────────────────────────────────
+const CORS_PROXY = 'https://corsproxy.io/?url=';
+const SEARXNG = ['https://search.sapti.me', 'https://searx.be', 'https://paulgo.io'];
+
+const SEARCH_TRIGGERS = /\b(latest|recent|today|current|news|price|weather|score|update|2024|2025|2026|now|live|who is|what is|how to|search|look up|find|check|when|where|why|best|top|vs|compare|release|version|available)\b/i;
+
+async function webSearchForLocal(query) {
+  // Try SearXNG
+  for (const inst of SEARXNG) {
+    try {
+      const url = inst + '/search?q=' + encodeURIComponent(query) + '&format=json&categories=general&language=en';
+      const res = await fetch(CORS_PROXY + encodeURIComponent(url), { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data.results?.length > 0) {
+        return data.results.slice(0, 4).map((r, i) =>
+          '[' + (i+1) + '] ' + r.title + '\n' + (r.content || '') + '\nURL: ' + r.url
+        ).join('\n\n');
+      }
+    } catch { continue; }
+  }
+  // DuckDuckGo fallback
+  try {
+    const ddg = 'https://api.duckduckgo.com/?q=' + encodeURIComponent(query) + '&format=json&no_html=1&skip_disambig=1';
+    const res = await fetch(CORS_PROXY + encodeURIComponent(ddg), { signal: AbortSignal.timeout(5000) });
+    if (res.ok) {
+      const d = await res.json();
+      const parts = [];
+      if (d.Abstract) parts.push('Summary: ' + d.Abstract);
+      if (d.Answer) parts.push('Answer: ' + d.Answer);
+      if (d.RelatedTopics?.length) parts.push(d.RelatedTopics.slice(0,3).filter(t=>t.Text).map(t=>t.Text).join('\n'));
+      if (parts.length) return parts.join('\n\n');
+    }
+  } catch {}
+  // Wikipedia fallback
+  try {
+    const q = query.split(' ').slice(0,4).join('_');
+    const res = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(q), { signal: AbortSignal.timeout(4000) });
+    if (res.ok) {
+      const d = await res.json();
+      if (d.extract) return 'Wikipedia: ' + d.title + '\n' + d.extract.slice(0, 600);
+    }
+  } catch {}
+  return null;
+}
+
+// Allow UI to observe search status
+let _onSearchStatus = null;
+export function setSearchStatusCallback(cb) { _onSearchStatus = cb; }
+
+async function enrichMessagesWithSearch(messages) {
+  const lastMsg = messages[messages.length - 1];
+  if (!lastMsg || lastMsg.role !== 'user') return messages;
+  const text = lastMsg.content || '';
+
+  // Skip pure coding tasks that don't need web data
+  const isPureCode = /^(write|create|build|make|code|implement|fix|debug|refactor)\s/i.test(text.trim()) && !SEARCH_TRIGGERS.test(text);
+  if (isPureCode) return messages;
+
+  if (!SEARCH_TRIGGERS.test(text)) return messages;
+
+  // Extract search query
+  const query = text.replace(/^(search|look up|find|check|what is|who is|tell me about)\s+/i, '').slice(0, 100).trim();
+  if (!query || query.length < 3) return messages;
+
+  _onSearchStatus?.({ searching: true, query });
+  const results = await webSearchForLocal(query).catch(() => null);
+  _onSearchStatus?.({ searching: false, found: !!results });
+  if (!results) return messages;
+
+  // Inject search results before the user message
+  const enriched = [...messages.slice(0, -1)];
+  enriched.push({
+    role: 'user',
+    content: '[Web search results for: "' + query + '" — ' + new Date().toLocaleDateString() + ']\n\n' + results
+  });
+  enriched.push({ role: 'assistant', content: 'I have current web search results. I will use them to answer accurately.' });
+  enriched.push(lastMsg);
+  return enriched;
+}
 
 // ─── Singleton engine ─────────────────────────────────────────────────────────
 let _engine = null;
@@ -77,15 +159,18 @@ export async function callWasm(messages, systemPrompt) {
   if (!_engine) throw new Error('No local model loaded. Open Local WASM to download a model first.');
   const sys = systemPrompt || SYSTEM_PROMPT;
 
+  // Auto-search: inject web results for queries that need current info
+  const enriched = await enrichMessagesWithSearch(messages).catch(() => messages);
+
   if (_engineType === 'webgpu') {
-    const msgs = [{ role: 'system', content: sys }, ...messages];
+    const msgs = [{ role: 'system', content: sys }, ...enriched];
     const reply = await _engine.chat.completions.create({
       messages: msgs, stream: false, temperature: 0.3, max_tokens: 4096,
     });
     return reply.choices[0].message.content || '';
   } else {
     let prompt = '<|im_start|>system\n' + sys + '<|im_end|>\n';
-    for (const m of messages) {
+    for (const m of enriched) {
       prompt += '<|im_start|>' + m.role + '\n' + m.content + '<|im_end|>\n';
     }
     prompt += '<|im_start|>assistant\n';
@@ -214,8 +299,10 @@ export function useWasmLLM() {
     const t0 = performance.now();
 
     try {
+      const enrichedMsgs = await enrichMessagesWithSearch(messages).catch(() => messages);
+
       if (_engineType === 'webgpu') {
-        const msgs = [{ role: 'system', content: SYSTEM_PROMPT }, ...messages];
+        const msgs = [{ role: 'system', content: SYSTEM_PROMPT }, ...enrichedMsgs];
         const stream = await _engine.chat.completions.create({
           messages: msgs, stream: true, temperature: 0.3, max_tokens: 2048,
         });
@@ -268,6 +355,8 @@ export function useWasmLLM() {
     isReady: !!_engine && !['loading', 'downloading'].includes(status),
     isLoading: ['loading', 'downloading'].includes(status),
     isGenerating: status === 'generating',
+    isSearching,
+    searchQuery,
   };
 }
 
