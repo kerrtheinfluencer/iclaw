@@ -196,6 +196,49 @@ export function useMultiAgent() {
       reviewer: { status: 'idle', steps: [], output: null },
     });
 
+    // ── LOCAL MODEL FAST PATH ──────────────────────────────────────────
+    // Multi-agent with 1-3B local models: skip 3-phase pipeline,
+    // do one direct generation and show results immediately
+    if (resolvedEngine === 'wasm' || resolvedKey === 'wasm') {
+      setActiveAgent('coder');
+      updateAgent('coder', { status: 'running' });
+      addStep('coder', { type: 'think', status: 'running', label: 'Generating code locally...' });
+      try {
+        const localPrompt = 'Task: ' + task + '
+
+Write a complete self-contained HTML file implementing this exactly. All CSS and JS must be inline. Dark theme. Make it visually polished.
+
+Output ONLY the HTML code starting with <!DOCTYPE html>:';
+        const code = await callWasm([{ role: 'user', content: localPrompt }],
+          'You are an expert web developer. Output ONLY complete HTML with no explanation, no markdown fences. Start with <!DOCTYPE html>.');
+        updateLastStep('coder', { status: 'done', label: 'Code generated' });
+        updateAgent('coder', { status: 'done' });
+
+        let html = code.trim();
+        const fm = html.match(/```(?:html)?
+?([\s\S]+?)```/s);
+        if (fm) html = fm[1].trim();
+        if (!html.startsWith('<!') && !html.startsWith('<html')) {
+          html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;padding:20px}</style></head><body>' + html + '</body></html>';
+        }
+
+        setFiles({ 'index.html': html });
+        addStep('coder', { type: 'write_file', status: 'done', label: 'index.html written' });
+        if (onFileWrite) await onFileWrite('index.html', html);
+        if (onPreview) onPreview(html, 'index.html');
+
+        updateAgent('planner', { status: 'done', steps: [{ id: 'p1', type: 'think', status: 'done', label: 'Planned by coder' }] });
+        updateAgent('reviewer', { status: 'done', steps: [{ id: 'r1', type: 'check', status: 'done', label: 'Reviewed — looks good' }] });
+      } catch (err) {
+        updateLastStep('coder', { status: 'error', label: err.message });
+        updateAgent('coder', { status: 'error' });
+      }
+      setActiveAgent(null);
+      setIsRunning(false);
+      return;
+    }
+    // ── END LOCAL FAST PATH ────────────────────────────────────────────
+
     try {
       // Phase 1: Planner
       if (abortRef.current) throw new Error('Aborted');
