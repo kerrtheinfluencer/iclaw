@@ -228,7 +228,6 @@ export default function App() {
           onOpenAgent={() => setAgentOpen(true)}
           webSearchOn={llm.webSearchOn}
           isSearching={llm.isSearching || (llm.activeEngine === 'wasm' && wasmLLM.isSearching)}
-          searchQuery={llm.activeEngine === 'wasm' ? wasmLLM.searchQuery : ''}
           onToggleSearch={llm.toggleSearch} />
       </main>
 
