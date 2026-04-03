@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import ChatMessage from './ChatMessage.jsx';
 
-// Wrap JS for inline preview - using string concat to avoid template literal conflicts
+// Wrap JS for inline preview — uses JSON.stringify to avoid ALL quote conflicts
 function wrapJsPreview(code) {
   const libs = [];
   if (code.includes('THREE')) libs.push('https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js');
@@ -13,26 +13,39 @@ function wrapJsPreview(code) {
   if (code.includes('PIXI')) libs.push('https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js');
   if (code.includes('d3.')) libs.push('https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js');
   if (code.includes('anime')) libs.push('https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js');
-  if (code.includes('gsap') || code.includes('GSAP')) libs.push('https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js');
-  const needsCanvas = code.includes('THREE') || code.includes('PIXI') || code.includes('canvas') || code.includes('getContext');
+  const needsCanvas = code.includes('THREE') || code.includes('PIXI') || code.includes('canvas');
   const cleaned = code.replace(/^import\s+.*$/gm, '').replace(/^export\s+/gm, '');
-  const urlsJson = JSON.stringify(libs);
-  const body = needsCanvas
-    ? '<canvas id="canvas" style="width:100vw;height:100%;display:block;"></canvas>'
-    : '<div id="app" style="padding:16px;min-height:100vh;"></div>';
-  const loaderScript = '(function(){var u=' + urlsJson + ';' +
-    'function run(){var c=document.getElementById("canvas");' +
-    'if(c){c.width=window.innerWidth;c.height=window.innerHeight;}' +
-    'try{(function(){' + cleaned + '})();}' +
-    'catch(e){document.body.innerHTML="<div style='color:#f87171;padding:16px'>Error: "+e.message+"</div>";}}' +
-    'function l(i){if(i>=u.length){run();return;}' +
-    'var s=document.createElement("script");s.src=u[i];' +
-    's.onload=function(){l(i+1);};s.onerror=function(){l(i+1);};' +
-    'document.head.appendChild(s);}l(0);})();';
-  return '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
-    '<style>*{margin:0;box-sizing:border-box}body{background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;overflow:hidden}canvas{display:block;}</style>' +
-    '</head><body>' + body +
-    '<script>' + loaderScript + '<' + '/script></body></html>';
+  // Serialize all dynamic values — zero raw quotes in this source file
+  const libsJson = JSON.stringify(libs);
+  const codeJson = JSON.stringify(cleaned);
+  const bodyTag = needsCanvas ? 'canvas' : 'div';
+  const bodyId = needsCanvas ? 'c' : 'app';
+  const html = [
+    '<!DOCTYPE html><html>',
+    '<head><meta charset="UTF-8">',
+    '<style>*{margin:0}body{background:#0a0a0f;color:#e8e8e8;font-family:sans-serif}canvas{display:block}</style>',
+    '</head>',
+    '<body>',
+    '<' + bodyTag + ' id="' + bodyId + '"></' + bodyTag + '>',
+    '<script>',
+    '(function(){',
+    'var L=' + libsJson + ',C=' + codeJson + ';',
+    'function run(){',
+    'var c=document.getElementById("c");',
+    'if(c){c.width=innerWidth;c.height=innerHeight;}',
+    'try{new Function(C)();}',
+    'catch(e){document.body.textContent="Error: "+e.message;}',
+    '}',
+    'function load(i){if(i>=L.length){run();return;}',
+    'var s=document.createElement("script");',
+    's.src=L[i];s.onload=function(){load(i+1);};s.onerror=load.bind(null,i+1);',
+    'document.head.appendChild(s);}',
+    'load(0);',
+    '})();',
+    '<\/script>',
+    '</body></html>',
+  ].join('');
+  return html;
 }
 
 export default function ChatView({
