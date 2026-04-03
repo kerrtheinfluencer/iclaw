@@ -254,7 +254,7 @@ export default function MultiAgentPanel({
 
             <button
               onClick={() => { if (task.trim() && (apiKey || activeEngine === 'wasm')) { onRun(task.trim()); setTask(''); } }}
-              disabled={!task.trim() || !apiKey}
+              disabled={!task.trim() || (!apiKey && activeEngine !== 'wasm')}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-mono text-sm font-medium transition-all active:scale-[0.98] disabled:opacity-30 bg-neon-green/10 border border-neon-green/25 text-neon-green hover:bg-neon-green/15"
             >
               <Users size={14} />

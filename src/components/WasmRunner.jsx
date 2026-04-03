@@ -43,8 +43,9 @@ When web search results are provided in the context, use them to give accurate u
 // ── Web search for local models ──────────────────────────────────────
 const CORS = 'https://corsproxy.io/?url=';
 const SEARXNG = ['https://search.sapti.me', 'https://searx.be', 'https://paulgo.io'];
-const SEARCH_RE = /\b(latest|recent|today|current|news|price|weather|score|update|2025|2026|now|live|who is|what is|how to|search|look up|find|check|when|where|why|best|top|vs|compare|release|version|available)\b/i;
-const CODE_RE = /^(write|create|build|make|code|implement|fix|debug|refactor)\s/i;
+const SEARCH_RE = /\b(latest|recent|today|current|news|price|weather|score|update|2025|2026|2024|now|live|who|what|when|where|why|how|best|top|vs|compare|check|search|find|look up|tell me|online|internet|google|real.?time|right now|this (week|month|year|moment)|date|time|available|release|version|still|anymore)\b/i;
+const CODE_RE = /^(write|create|build|make|implement|fix|debug|refactor)\s/i;
+const DATE_RE = /\b(date|time|today|now|current(ly)?|this (week|month|year)|what day|what time)\b/i;
 
 async function doSearch(query) {
   for (const inst of SEARXNG) {
@@ -80,17 +81,55 @@ async function enrichWithSearch(messages, onSearching) {
   const last = messages[messages.length - 1];
   if (!last || last.role !== 'user') return messages;
   const text = last.content || '';
-  if (CODE_RE.test(text.trim()) && !SEARCH_RE.test(text)) return messages;
-  if (!SEARCH_RE.test(text)) return messages;
-  const query = text.replace(/^(search|look up|find|check|what is|who is|tell me about)\s+/i, '').slice(0, 100).trim();
-  if (!query || query.length < 3) return messages;
+
+  // Never search for pure coding tasks
+  if (CODE_RE.test(text.trim()) && !DATE_RE.test(text) && !SEARCH_RE.test(text)) return messages;
+
+  // Always search if it looks like a question needing real-world data
+  const needsSearch = SEARCH_RE.test(text) || DATE_RE.test(text) || text.includes('?') || text.toLowerCase().includes('online');
+  if (!needsSearch) return messages;
+
+  // Build a clean search query
+  let query = text
+    .replace(/^(search|look up|find|check|what is|who is|tell me about|google|check online)\s+/i, '')
+    .replace(/\?$/, '')
+    .slice(0, 120).trim();
+  if (!query || query.length < 2) return messages;
+
+  // For date queries, add today's actual date context directly without searching
+  if (DATE_RE.test(text) && text.split(' ').length < 6) {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+    const enriched = [...messages.slice(0, -1)];
+    enriched.push({ role: 'user', content: '[System: Current date and time = ' + dateStr + ', ' + timeStr + '. Jamaica timezone (EST-1).]' });
+    enriched.push({ role: 'assistant', content: 'Noted, today is ' + dateStr + '.' });
+    enriched.push(last);
+    return enriched;
+  }
+
   onSearching?.(true, query);
   const results = await doSearch(query).catch(() => null);
   onSearching?.(false, query);
-  if (!results) return messages;
+  if (!results) {
+    // Even if search fails, inject the date
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const enriched = [...messages.slice(0, -1)];
+    enriched.push({ role: 'user', content: '[System: Today is ' + dateStr + '. Web search returned no results for: "' + query + '"]' });
+    enriched.push({ role: 'assistant', content: 'Understood.' });
+    enriched.push(last);
+    return enriched;
+  }
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const enriched = [...messages.slice(0, -1)];
-  enriched.push({ role: 'user', content: '[Web search: "' + query + '" on ' + new Date().toLocaleDateString() + ']\n\n' + results });
-  enriched.push({ role: 'assistant', content: 'I have current search results and will use them to answer accurately.' });
+  enriched.push({
+    role: 'user',
+    content: '[System: Today is ' + dateStr + '. Web search results for "' + query + '":]\n\n' + results + '\n\n[Use these results to answer. Do not say you cannot access the internet.]'
+  });
+  enriched.push({ role: 'assistant', content: 'I have the search results and today\'s date. I will answer based on this current information.' });
   enriched.push(last);
   return enriched;
 }
