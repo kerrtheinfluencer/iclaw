@@ -392,6 +392,36 @@ Max ${MAX_STEPS} steps. Be efficient but never sacrifice quality.`;
 
     addStep({ type: 'plan', status: 'done', label: 'Starting agent loop', thought: '' });
 
+    // ── LOCAL MODEL FAST PATH ────────────────────────────────────────
+    // Small local models (1-3B) can't reliably output JSON tool calls.
+    // Instead: ask directly for code, extract HTML, done in one shot.
+    if (engine === 'wasm' || apiKey === 'wasm') {
+      addStep({ type: 'think', status: 'running', label: 'Generating code locally...' });
+      try {
+        const localPrompt = 'Task: ' + task + '\n\nWrite a complete self-contained HTML file. Include all CSS and JS inline. Dark theme. Output ONLY the HTML starting with <!DOCTYPE html>:';
+        const code = await callWasm([{ role: 'user', content: localPrompt }],
+          'You are an expert web developer. Output ONLY complete HTML code, no explanation, no markdown, no fences. Start with <!DOCTYPE html>.');
+        updateLastStep({ status: 'done', label: 'Code generated' });
+        let html = code.trim();
+        const fm = html.match(/```(?:html)?\n?([\s\S]+?)```/s);
+        if (fm) html = fm[1].trim();
+        if (!html.startsWith('<!') && !html.startsWith('<html')) {
+          html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;padding:20px}</style></head><body>' + html + '</body></html>';
+        }
+        addStep({ type: 'write_file', status: 'done', label: 'Writing index.html' });
+        setFiles(prev => ({ ...prev, 'index.html': html }));
+        if (onFileWrite) await onFileWrite('index.html', html);
+        if (onPreview) onPreview(html, 'index.html');
+        addStep({ type: 'finish', status: 'done', label: 'Done — tap the file to preview' });
+      } catch (err) {
+        addStep({ type: 'error', status: 'error', label: err.message, detail: err.message });
+      }
+      setIsRunning(false);
+      return;
+    }
+    // ── END LOCAL MODEL FAST PATH ────────────────────────────────────
+
+
     let stepCount = 0;
 
     while (stepCount < MAX_STEPS && !abortRef.current) {
@@ -403,7 +433,7 @@ Max ${MAX_STEPS} steps. Be efficient but never sacrifice quality.`;
         try {
           if (engine === 'wasm' || apiKey === 'wasm') {
             addStep({ type: 'think', status: 'running', label: 'Thinking locally...' });
-            rawText = await callWasm(messages, AGENT_SYSTEM);
+            rawText = await callWasm(messages, AGENT_SYSTEM_LOCAL);
             updateLastStep({ status: 'done', label: 'Local inference complete' });
           } else {
             rawText = await callProviderQueued(
