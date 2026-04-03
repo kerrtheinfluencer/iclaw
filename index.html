@@ -8,30 +8,26 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="iclaw" />
     <link rel="apple-touch-icon" href="/iclaw/icons/icon-192.png" />
-    <link rel="manifest" href="/iclaw/manifest.webmanifest" />
     <title>iclaw</title>
     <script>
-      // Register COI service worker FIRST — before anything else loads
-      // This enables SharedArrayBuffer → multi-thread WASM → 3-5x faster inference
+      // Register COI service worker to enable SharedArrayBuffer → multi-thread WASM
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/iclaw/coi-serviceworker.js').then(function(reg) {
-          // If we just installed, reload once to activate COOP/COEP headers
+        navigator.serviceWorker.register('./coi-serviceworker.js').then(function(reg) {
           if (reg.installing) {
             reg.installing.addEventListener('statechange', function() {
-              if (this.state === 'activated') {
-                // Only reload if not already cross-origin isolated
-                if (!crossOriginIsolated) window.location.reload();
+              if (this.state === 'activated' && !crossOriginIsolated) {
+                window.location.reload();
               }
             });
           }
         }).catch(function(e) {
-          console.warn('COI service worker registration failed:', e);
+          console.warn('COI SW failed:', e);
         });
       }
     </script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/iclaw/src/main.jsx"></script>
+    <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
