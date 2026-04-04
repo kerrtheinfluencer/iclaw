@@ -158,11 +158,24 @@ async function checkGPU() {
 }
 
 // ── Public API for agents ────────────────────────────────────────────
-export async function callWasm(messages, systemPrompt) {
+export async function callWasm(messages, systemPrompt, onChunk) {
   if (!_engine) throw new Error('No local model loaded. Open Local WASM to download a model first.');
   const sys = systemPrompt || SYSTEM_PROMPT;
   const enriched = await enrichWithSearch(messages, null).catch(() => messages);
   if (_engineType === 'webgpu') {
+    // Stream token by token if callback provided
+    if (onChunk) {
+      const stream = await _engine.chat.completions.create({
+        messages: [{ role: 'system', content: sys }, ...enriched],
+        stream: true, temperature: 0.3, max_tokens: 4096,
+      });
+      let out = '';
+      for await (const chunk of stream) {
+        const piece = chunk.choices[0]?.delta?.content || '';
+        if (piece) { out += piece; onChunk(piece); }
+      }
+      return out;
+    }
     const r = await _engine.chat.completions.create({ messages: [{ role: 'system', content: sys }, ...enriched], stream: false, temperature: 0.3, max_tokens: 4096 });
     return r.choices[0].message.content || '';
   } else {
@@ -174,7 +187,7 @@ export async function callWasm(messages, systemPrompt) {
       nPredict: 4096, temperature: 0.3,
       onNewToken: (_t, piece, cur) => {
         const text = typeof piece === 'string' ? piece : piece instanceof Uint8Array ? new TextDecoder().decode(piece) : typeof cur === 'string' ? cur.slice(out.length) : '';
-        if (text) out += text;
+        if (text) { out += text; onChunk?.(text); }
       },
       stopTokens: ['<|im_end|>', '<|endoftext|>'],
     });

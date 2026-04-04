@@ -158,11 +158,32 @@ const EXAMPLE_TASKS = [
   'Make a multiplayer tic-tac-toe game',
 ];
 
+
+function LiveCodeWindow({ streamText, isActive }) {
+  const bottomRef = React.useRef(null);
+  React.useEffect(() => {
+    if (isActive) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [streamText, isActive]);
+  if (!streamText && !isActive) return null;
+  return (
+    <div className="rounded-xl border border-neon-green/20 bg-[#0a0f0a] overflow-hidden mx-4 mb-3">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-neon-green/10 bg-neon-green/[0.03]">
+        <span className="text-[10px] font-mono text-neon-green/80">⚡ Live Output</span>
+        {isActive && <span className="ml-auto flex items-center gap-1 text-[9px] font-mono text-neon-cyan/70"><span className="w-1.5 h-1.5 rounded-full bg-neon-cyan animate-pulse" />generating...</span>}
+      </div>
+      <div className="p-3 max-h-56 overflow-y-auto">
+        <pre className="text-[11px] font-mono text-neon-green/80 whitespace-pre-wrap leading-relaxed break-all">{streamText || ' '}</pre>
+        <div ref={bottomRef} />
+      </div>
+    </div>
+  );
+}
+
 export default function MultiAgentPanel({
   isOpen, onClose,
   isRunning, agents, files, activeAgent,
   onRun, onStop, onClear, onResume,
-  apiKey, activeEngine, onPreviewFile,
+  apiKey, activeEngine, streamText, onPreviewFile,
 }) {
   const [task, setTask] = useState('');
   const fileList = Object.keys(files || {});
@@ -299,7 +320,8 @@ export default function MultiAgentPanel({
           </div>
         )}
 
-        {/* Files */}
+        <LiveCodeWindow streamText={streamText} isActive={isRunning} />
+      {/* Files */}
         {fileList.length > 0 && (
           <div className="px-4 pb-3 space-y-2">
             <span className="text-[10px] font-mono text-steel-500 uppercase tracking-wider">Output Files ({fileList.length})</span>
