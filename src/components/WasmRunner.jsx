@@ -3,21 +3,28 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Loader2, Cpu, X, Download, Check, AlertTriangle, Zap, Globe } from 'lucide-react';
 
 // ── WebGPU models (confirmed working MLC IDs) ────────────────────────
-// GPU memory budget on iPhone 16 Safari = ~600-900MB depending on other apps
-// All models below confirmed to use <600MB VRAM at q4f16_1 quantization
+// ONLY models with confirmed MLC prebuilt files in WebLLM's appConfig
+// Source: github.com/mlc-ai/web-llm/issues/648 — verified file counts
 const WEBGPU_MODELS = {
   'smollm2-360m-webgpu': {
     mlcId: 'SmolLM2-360M-Instruct-q4f16_1-MLC',
     label: 'SmolLM2 360M ⚡', size: '~200MB',
-    desc: 'Smallest · fastest · always works · good for quick tasks',
+    desc: 'Smallest · fastest · always works',
     type: 'webgpu', safe: true, vramMB: 280, shards: 35,
     reasoning: false,
   },
   'llama3.2-1b-webgpu': {
     mlcId: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
     label: 'Llama 3.2 1B ⚡', size: '~700MB',
-    desc: 'Fast · general purpose · close all apps first',
-    type: 'webgpu', safe: true, vramMB: 860, shards: 83,
+    desc: 'Fast · general purpose · 28 shards',
+    type: 'webgpu', safe: true, vramMB: 860, shards: 28,
+    reasoning: false,
+  },
+  'llama3.2-1b-q4f32': {
+    mlcId: 'Llama-3.2-1B-Instruct-q4f32_1-MLC',
+    label: 'Llama 3.2 1B (q4f32) ⚡', size: '~1.1GB',
+    desc: 'Higher precision · better quality · 29 shards',
+    type: 'webgpu', safe: true, vramMB: 1000, shards: 29,
     reasoning: false,
   },
   'qwen2.5-coder-1.5b-webgpu': {
@@ -27,19 +34,12 @@ const WEBGPU_MODELS = {
     type: 'webgpu', safe: true, vramMB: 1050, shards: 95,
     reasoning: false,
   },
-  'deepseek-r1-1.5b-webgpu': {
-    mlcId: 'DeepSeek-R1-Distill-Qwen-1.5B-q4f16_1-MLC',
-    label: 'DeepSeek R1 1.5B ⚡', size: '~900MB',
-    desc: 'Reasoning model · thinks step-by-step · close all apps',
-    type: 'webgpu', safe: true, vramMB: 1100, shards: 100,
+  'hermes3-llama-1b-webgpu': {
+    mlcId: 'Hermes-3-Llama-3.2-1B-q4f16_1-MLC',
+    label: 'Hermes 3 1B ⚡', size: '~700MB',
+    desc: 'Instruction-tuned · better reasoning than Llama base',
+    type: 'webgpu', safe: true, vramMB: 880, shards: 28,
     reasoning: true,
-  },
-  'qwen2.5-1.5b-webgpu': {
-    mlcId: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
-    label: 'Qwen2.5 1.5B ⚡', size: '~850MB',
-    desc: 'General · strong multilingual · close all apps',
-    type: 'webgpu', safe: true, vramMB: 1050, shards: 95,
-    reasoning: false,
   },
 };
 
@@ -278,7 +278,7 @@ export function useWasmLLM() {
           if (navigator.storage && navigator.storage.estimate) {
             const est = await navigator.storage.estimate();
             const availMB = Math.floor((est.quota - est.usage) / 1048576);
-            const modelSizes = { 'smollm2-360m-webgpu': 220, 'llama3.2-1b-webgpu': 750, 'qwen2.5-coder-1.5b-webgpu': 900, 'deepseek-r1-1.5b-webgpu': 950, 'qwen2.5-1.5b-webgpu': 900 };
+            const modelSizes = { 'smollm2-360m-webgpu': 220, 'llama3.2-1b-webgpu': 750, 'llama3.2-1b-q4f32': 1100, 'qwen2.5-coder-1.5b-webgpu': 900, 'hermes3-llama-1b-webgpu': 750 };
             const neededMB = modelSizes[id] || 1000;
             setProgressText('Storage: ' + availMB + 'MB free, need ~' + neededMB + 'MB');
             if (availMB < neededMB) {

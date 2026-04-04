@@ -134,11 +134,11 @@ export default function ChatV2({
             <p className="text-[11px] font-mono text-slate-500 uppercase tracking-wider">On-Device (Private)</p>
           </div>
           {[
-            { id:'smollm2-360m-webgpu', label:'SmolLM2 360M ⚡', sub:'200MB · Most reliable' },
-            { id:'llama3.2-1b-webgpu', label:'Llama 3.2 1B ⚡', sub:'700MB · Fast · General' },
+            { id:'smollm2-360m-webgpu', label:'SmolLM2 360M ⚡', sub:'200MB · Always works' },
+            { id:'llama3.2-1b-webgpu', label:'Llama 3.2 1B ⚡', sub:'700MB · Fast & general' },
+            { id:'llama3.2-1b-q4f32', label:'Llama 1B (q4f32) ⚡', sub:'1.1GB · Higher quality' },
             { id:'qwen2.5-coder-1.5b-webgpu', label:'Qwen Coder 1.5B ⚡', sub:'850MB · Best for code' },
-            { id:'deepseek-r1-1.5b-webgpu', label:'DeepSeek R1 1.5B ⚡', sub:'900MB · Reasoning model' },
-            { id:'qwen2.5-1.5b-webgpu', label:'Qwen2.5 1.5B ⚡', sub:'850MB · General purpose' },
+            { id:'hermes3-llama-1b-webgpu', label:'Hermes 3 1B ⚡', sub:'700MB · Better reasoning' },
           ].map(m => (
             <button key={m.id} onClick={() => { onSelectModel(m.id); llm.initModel?.('wasm'); setShowModelMenu(false); }}
               className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/[0.04] transition text-left">
