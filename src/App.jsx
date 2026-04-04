@@ -101,7 +101,6 @@ export default function App() {
   };
 
   const isWasm = llm.activeEngine === 'wasm';
-  const isOnDevice = isWasm && wasmLLM.isReady;
 
   return (
     <ErrorBoundary>
@@ -112,7 +111,6 @@ export default function App() {
           onNewChat={handleNewChat}
           llm={llm}
           wasmLLM={wasmLLM}
-          isOnDevice={isOnDevice}
           isWasm={isWasm}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenAgent={() => setAgentOpen(true)}
