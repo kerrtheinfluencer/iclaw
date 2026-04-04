@@ -3,45 +3,73 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Loader2, Cpu, X, Download, Check, AlertTriangle, Zap, Globe } from 'lucide-react';
 
 // ── WebGPU models (confirmed working MLC IDs) ────────────────────────
-// ONLY models with confirmed MLC prebuilt files in WebLLM's appConfig
-// Source: github.com/mlc-ai/web-llm/issues/648 — verified file counts
-const WEBGPU_MODELS = {
-  'smollm2-360m-webgpu': {
+// WebGPU models — IDs verified from WebLLM prebuiltAppConfig
+// Strategy: load WebLLM first, filter its model_list to small models, show only valid ones
+// Fallback hardcoded list uses only confirmed-working IDs from issue #648
+const STATIC_WEBGPU_MODELS = {
+  'smollm2-360m': {
     mlcId: 'SmolLM2-360M-Instruct-q4f16_1-MLC',
     label: 'SmolLM2 360M ⚡', size: '~200MB',
-    desc: 'Smallest · fastest · always works',
-    type: 'webgpu', safe: true, vramMB: 280, shards: 35,
-    reasoning: false,
+    desc: 'Smallest · fastest · always works', type: 'webgpu',
+    vramMB: 280, reasoning: false,
   },
-  'llama3.2-1b-webgpu': {
+  'llama3.2-1b-q4f16': {
     mlcId: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
     label: 'Llama 3.2 1B ⚡', size: '~700MB',
-    desc: 'Fast · general purpose · 28 shards',
-    type: 'webgpu', safe: true, vramMB: 860, shards: 28,
-    reasoning: false,
+    desc: 'Fast · general · 28 shards confirmed', type: 'webgpu',
+    vramMB: 860, reasoning: false,
   },
   'llama3.2-1b-q4f32': {
     mlcId: 'Llama-3.2-1B-Instruct-q4f32_1-MLC',
     label: 'Llama 3.2 1B (q4f32) ⚡', size: '~1.1GB',
-    desc: 'Higher precision · better quality · 29 shards',
-    type: 'webgpu', safe: true, vramMB: 1000, shards: 29,
-    reasoning: false,
+    desc: 'Higher precision · 29 shards confirmed', type: 'webgpu',
+    vramMB: 1000, reasoning: false,
   },
-  'qwen2.5-coder-1.5b-webgpu': {
+  'qwen2.5-coder-1.5b': {
     mlcId: 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC',
     label: 'Qwen Coder 1.5B ⚡', size: '~850MB',
-    desc: 'Best for code · close all apps first',
-    type: 'webgpu', safe: true, vramMB: 1050, shards: 95,
-    reasoning: false,
+    desc: 'Best for code · close all apps first', type: 'webgpu',
+    vramMB: 1050, reasoning: false,
   },
-  'hermes3-llama-1b-webgpu': {
-    mlcId: 'Hermes-3-Llama-3.2-1B-q4f16_1-MLC',
-    label: 'Hermes 3 1B ⚡', size: '~700MB',
-    desc: 'Instruction-tuned · better reasoning than Llama base',
-    type: 'webgpu', safe: true, vramMB: 880, shards: 28,
-    reasoning: true,
+  'phi3.5-mini': {
+    mlcId: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
+    label: 'Phi 3.5 Mini ⚡', size: '~2.1GB',
+    desc: 'Smartest · 91 shards · needs lots of RAM', type: 'webgpu',
+    vramMB: 2100, reasoning: true,
   },
 };
+
+// Dynamically discovered models from WebLLM — populated on first load
+let DYNAMIC_WEBGPU_MODELS = null;
+
+async function discoverModels(webllm) {
+  if (DYNAMIC_WEBGPU_MODELS) return DYNAMIC_WEBGPU_MODELS;
+  try {
+    const list = webllm.prebuiltAppConfig?.model_list || [];
+    const small = list.filter(m => {
+      const id = m.model_id || '';
+      // Only show models likely to fit in iPhone GPU budget
+      return (id.includes('1B') || id.includes('360M') || id.includes('1.5B') || id.includes('2B')) &&
+        id.includes('q4f16') &&
+        !id.includes('1k') && // skip small context variants
+        !id.includes('MiniCPM');
+    });
+    DYNAMIC_WEBGPU_MODELS = {};
+    small.slice(0, 8).forEach((m, i) => {
+      const id = m.model_id;
+      DYNAMIC_WEBGPU_MODELS['dynamic-' + i] = {
+        mlcId: id,
+        label: id.replace('-q4f16_1-MLC','').replace(/-Instruct$/,'').replace(/-/g,' ') + ' ⚡',
+        size: '?MB', desc: 'Auto-discovered · ' + id, type: 'webgpu',
+        vramMB: 1000, reasoning: id.toLowerCase().includes('r1') || id.toLowerCase().includes('hermes'),
+      };
+    });
+    return DYNAMIC_WEBGPU_MODELS;
+  } catch { return {}; }
+}
+
+// Alias for backward compat
+const WEBGPU_MODELS = STATIC_WEBGPU_MODELS;
 
 // ── CPU fallback (wllama) ────────────────────────────────────────────
 const CPU_MODELS = {
@@ -242,7 +270,7 @@ export function useWasmLLM() {
   const [progressText, setProgressText] = useState('');
   const [error, setError] = useState(null);
   const [hasGPU, setHasGPU] = useState(null);
-  const [selectedModel, setSelectedModel] = useState('llama3.2-1b-webgpu');
+  const [selectedModel, setSelectedModel] = useState('llama3.2-1b-q4f16');
   const [loadedModelId, setLoadedModelId] = useState(_loadedModelId);
   const [isModelReady, setIsModelReady] = useState(!!_engine && !!_loadedModelId);
   const [isSearching, setIsSearching] = useState(false);
@@ -251,10 +279,14 @@ export function useWasmLLM() {
 
   useEffect(() => {
     checkGPU().then(ok => { setHasGPU(ok); if (!ok) setSelectedModel('qwen2.5-coder-1.5b'); });
+    // Discover additional models from WebLLM's own list (runs in background)
+    loadWebLLM().then(webllm => discoverModels(webllm)).catch(() => {});
     if (_engine && _loadedModelId) { setLoadedModelId(_loadedModelId); setStatus('ready'); setIsModelReady(true); }
   }, []);
 
-  const allModels = hasGPU ? { ...WEBGPU_MODELS, ...CPU_MODELS } : CPU_MODELS;
+  const allModels = hasGPU
+    ? { ...STATIC_WEBGPU_MODELS, ...(DYNAMIC_WEBGPU_MODELS || {}), ...CPU_MODELS }
+    : CPU_MODELS;
 
   const loadModel = useCallback(async (modelId) => {
     const id = modelId || selectedModel;
@@ -266,19 +298,19 @@ export function useWasmLLM() {
     try {
       if (_engine) { try { _engineType === 'webgpu' ? await _engine.unload() : await _engine.exit(); } catch {} _engine = null; _loadedModelId = null; _engineType = null; }
 
-      const isGPUModel = !!WEBGPU_MODELS[id];
+      const isGPUModel = !!(STATIC_WEBGPU_MODELS[id] || (DYNAMIC_WEBGPU_MODELS && DYNAMIC_WEBGPU_MODELS[id]));
       const gpuOk = await checkGPU();
 
       if (isGPUModel && gpuOk) {
         setStatus('downloading');
-        const model = WEBGPU_MODELS[id];
+        const model = STATIC_WEBGPU_MODELS[id] || (DYNAMIC_WEBGPU_MODELS && DYNAMIC_WEBGPU_MODELS[id]);
 
         // Check available storage quota before downloading
         try {
           if (navigator.storage && navigator.storage.estimate) {
             const est = await navigator.storage.estimate();
             const availMB = Math.floor((est.quota - est.usage) / 1048576);
-            const modelSizes = { 'smollm2-360m-webgpu': 220, 'llama3.2-1b-webgpu': 750, 'llama3.2-1b-q4f32': 1100, 'qwen2.5-coder-1.5b-webgpu': 900, 'hermes3-llama-1b-webgpu': 750 };
+            const modelSizes = { 'smollm2-360m': 220, 'llama3.2-1b-q4f16': 750, 'llama3.2-1b-q4f32': 1100, 'qwen2.5-coder-1.5b': 900, 'phi3.5-mini': 2200 };
             const neededMB = modelSizes[id] || 1000;
             setProgressText('Storage: ' + availMB + 'MB free, need ~' + neededMB + 'MB');
             if (availMB < neededMB) {
