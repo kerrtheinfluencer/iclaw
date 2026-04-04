@@ -1,563 +1,449 @@
-import { getSetting } from '../utils/db.js';
-import { callWasm } from '../components/WasmRunner.jsx';
-import { callProviderQueued, delay } from '../utils/requestQueue.js';
 /**
- * iclaw Agent — Browser-side agentic loop
+ * iclaw Agent v2 — Agentic loop with intent-based web search
  * Tools: write_file, read_file, web_search, run_code, finish
+ * Local fast path: intent detect → search → generate → done (no JSON loop)
  */
 import { useState, useRef, useCallback } from 'react';
 import { uid } from '../utils/codeParser.js';
+import { getSetting } from '../utils/db.js';
+import { callProviderQueued } from '../utils/requestQueue.js';
+import { callWasm } from '../components/WasmRunner.jsx';
 
-const MAX_STEPS = 20;
+// ── Smart web search — Tavily first, SearXNG fallback ────────────────
+const CORS = 'https://corsproxy.io/?url=';
+const SEARXNG = ['https://search.sapti.me', 'https://searx.be', 'https://paulgo.io'];
 
-// Sandbox runner — executes HTML/JS and returns console output
-function runInSandbox(code, language) {
-  return new Promise((resolve) => {
-    const logs = [];
-    const errors = [];
-
-    // Wrap JS in a full HTML doc if not already HTML
-    let html = code;
-    if (!['html', 'xml'].includes(language)) {
-      html = `<!DOCTYPE html><html><head></head><body><script>
-const _logs = [];
-const _orig = { log: console.log, error: console.error, warn: console.warn };
-console.log = (...a) => { _logs.push({t:'log', v: a.map(String).join(' ')}); _orig.log(...a); };
-console.error = (...a) => { _logs.push({t:'error', v: a.map(String).join(' ')}); _orig.error(...a); };
-console.warn = (...a) => { _logs.push({t:'warn', v: a.map(String).join(' ')}); _orig.warn(...a); };
-window.onerror = (msg,_,line) => { _logs.push({t:'error', v: \`Line \${line}: \${msg}\`}); };
-try {
-${code}
-} catch(e) { _logs.push({t:'error', v: e.message}); }
-setTimeout(() => parent.postMessage({type:'sandboxResult', logs: _logs}, '*'), 100);
-<\/script></body></html>`;
-    } else {
-      // Inject logger into HTML
-      const loggerScript = `<script>
-const _logs = [];
-const _orig = { log: console.log, error: console.error };
-console.log = (...a) => { _logs.push({t:'log', v: a.map(String).join(' ')}); _orig.log(...a); };
-console.error = (...a) => { _logs.push({t:'error', v: a.map(String).join(' ')}); _orig.error(...a); };
-window.onerror = (msg,_,line) => { _logs.push({t:'error', v: \`Line \${line}: \${msg}\`}); };
-setTimeout(() => parent.postMessage({type:'sandboxResult', logs: _logs}, '*'), 500);
-<\/script>`;
-      html = html.replace('</head>', loggerScript + '</head>');
-    }
-
-    const blob = new Blob([html], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;';
-    iframe.sandbox = 'allow-scripts allow-same-origin';
-
-    const timeout = setTimeout(() => {
-      cleanup();
-      resolve({ output: '(timeout — no output after 3s)', errors: [] });
-    }, 3000);
-
-    const handler = (e) => {
-      if (e.data?.type === 'sandboxResult') {
-        cleanup();
-        const output = e.data.logs.map(l => `[${l.t}] ${l.v}`).join('\n') || '(no output)';
-        const errs = e.data.logs.filter(l => l.t === 'error').map(l => l.v);
-        resolve({ output, errors: errs });
-      }
-    };
-
-    const cleanup = () => {
-      clearTimeout(timeout);
-      window.removeEventListener('message', handler);
-      document.body.removeChild(iframe);
-      URL.revokeObjectURL(url);
-    };
-
-    window.addEventListener('message', handler);
-    document.body.appendChild(iframe);
-    iframe.src = url;
-  });
-}
-
-// SearXNG search (reuse from worker pattern)
-const CORS_PROXY = 'https://corsproxy.io/?url=';
-const SEARXNG_INSTANCES = ['https://search.sapti.me', 'https://searx.be', 'https://paulgo.io'];
-
-async function browserSearch(query) {
-  // Try SearXNG instances first
-  for (const instance of SEARXNG_INSTANCES) {
+async function smartSearch(query, tavilyKey) {
+  // Tavily — best for agents, returns clean snippets
+  if (tavilyKey && tavilyKey !== 'wasm') {
     try {
-      const url = `${instance}/search?q=${encodeURIComponent(query)}&format=json&categories=general&language=en`;
-      const res = await fetch(CORS_PROXY + encodeURIComponent(url), {
-        signal: AbortSignal.timeout(6000),
+      const r = await fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: tavilyKey, query, max_results: 5, search_depth: 'basic' }),
+        signal: AbortSignal.timeout(8000),
       });
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data.results?.length > 0) {
-        return data.results.slice(0, 5)
-          .map((r, i) => `[${i+1}] ${r.title}\n${r.content || ''}\nURL: ${r.url}`)
-          .join('\n\n');
+      if (r.ok) {
+        const d = await r.json();
+        if (d.results?.length > 0) {
+          const out = d.results.map((x, i) => '[' + (i+1) + '] ' + x.title + '\n' + (x.content || x.snippet || '') + '\nURL: ' + x.url).join('\n\n');
+          return { results: out, source: 'Tavily' };
+        }
+      }
+    } catch {}
+  }
+  // SearXNG fallback
+  for (const inst of SEARXNG) {
+    try {
+      const url = inst + '/search?q=' + encodeURIComponent(query) + '&format=json&categories=general&language=en';
+      const r = await fetch(CORS + encodeURIComponent(url), { signal: AbortSignal.timeout(6000) });
+      if (!r.ok) continue;
+      const d = await r.json();
+      if (d.results?.length > 0) {
+        const out = d.results.slice(0, 5).map((x, i) => '[' + (i+1) + '] ' + x.title + '\n' + (x.content || '') + '\nURL: ' + x.url).join('\n\n');
+        return { results: out, source: 'SearXNG' };
       }
     } catch { continue; }
   }
-
-  // Fallback: DuckDuckGo Instant Answers API
+  // DuckDuckGo instant answer
   try {
-    const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
-    const res = await fetch(CORS_PROXY + encodeURIComponent(ddgUrl), {
-      signal: AbortSignal.timeout(6000),
-    });
-    if (res.ok) {
-      const data = await res.json();
+    const r = await fetch(CORS + encodeURIComponent('https://api.duckduckgo.com/?q=' + encodeURIComponent(query) + '&format=json&no_html=1'), { signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      const d = await r.json();
       const parts = [];
-      if (data.Abstract) parts.push(`Summary: ${data.Abstract}\nSource: ${data.AbstractURL}`);
-      if (data.Answer) parts.push(`Answer: ${data.Answer}`);
-      if (data.RelatedTopics?.length > 0) {
-        parts.push(data.RelatedTopics.slice(0, 3)
-          .filter(t => t.Text)
-          .map((t, i) => `[${i+1}] ${t.Text}`)
-          .join('\n'));
-      }
-      if (parts.length > 0) return parts.join('\n\n');
+      if (d.Abstract) parts.push('Summary: ' + d.Abstract);
+      if (d.Answer) parts.push('Answer: ' + d.Answer);
+      if (parts.length) return { results: parts.join('\n'), source: 'DuckDuckGo' };
     }
   } catch {}
+  return { results: null, source: null };
+}
 
-  // Fallback: Wikipedia API for factual queries
+// Intent detection — does this task need web search?
+const NEEDS_SEARCH_RE = /\b(latest|current|today|now|news|price|stock|weather|score|2025|2026|search|find|look up|who is|what is|when|how to|best|top|vs|compare|release|version|review|available|trending)\b/i;
+
+const MAX_STEPS = 15;
+const CORS_PROXY = 'https://corsproxy.io/?url=';
+
+// ── Web search (3-tier fallback) ─────────────────────────────────────
+async function webSearch(query) {
+  const instances = ['https://search.sapti.me', 'https://searx.be', 'https://paulgo.io'];
+  for (const inst of instances) {
+    try {
+      const url = inst + '/search?q=' + encodeURIComponent(query) + '&format=json&categories=general&language=en';
+      const r = await fetch(CORS_PROXY + encodeURIComponent(url), { signal: AbortSignal.timeout(6000) });
+      if (!r.ok) continue;
+      const d = await r.json();
+      if (d.results?.length > 0) {
+        return d.results.slice(0, 5).map((x, i) =>
+          '[' + (i+1) + '] ' + x.title + '\n' + (x.content || '') + '\nURL: ' + x.url
+        ).join('\n\n');
+      }
+    } catch { continue; }
+  }
+  // DuckDuckGo instant answers
   try {
-    const wikiUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query.split(' ').slice(0,3).join('_'))}`;
-    const res = await fetch(wikiUrl, { signal: AbortSignal.timeout(5000) });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.extract) return `Wikipedia: ${data.title}\n${data.extract.slice(0, 500)}\nURL: ${data.content_urls?.desktop?.page || ''}`;
+    const r = await fetch(CORS_PROXY + encodeURIComponent('https://api.duckduckgo.com/?q=' + encodeURIComponent(query) + '&format=json&no_html=1&skip_disambig=1'), { signal: AbortSignal.timeout(5000) });
+    if (r.ok) {
+      const d = await r.json();
+      const parts = [];
+      if (d.Abstract) parts.push('Summary: ' + d.Abstract + '\nSource: ' + d.AbstractURL);
+      if (d.Answer) parts.push('Answer: ' + d.Answer);
+      if (d.RelatedTopics?.length) parts.push(d.RelatedTopics.slice(0,4).filter(t=>t.Text).map(t=>t.Text).join('\n'));
+      if (parts.length) return parts.join('\n\n');
     }
   } catch {}
-
-  return 'No search results found. Try a more specific query.';
-}
-
-
-// Multi-provider LLM call for agents
-async function callProvider(apiKey, engine, model, systemPrompt, messages) {
+  // Wikipedia
   try {
-    if (engine === 'groq') {
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: model || 'openai/gpt-oss-120b',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages.map(({ role, content }) => ({ role, content })),
-          ],
-          temperature: 0.2, max_tokens: 4096,
-        }),
-      });
-      if (!res.ok) return `__ERROR__API error: ${res.status}: ${(await res.text()).slice(0,150)}`;
-      const data = await res.json();
-      return data.choices?.[0]?.message?.content || '';
+    const q = query.split(' ').slice(0,4).join('_');
+    const r = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(q), { signal: AbortSignal.timeout(4000) });
+    if (r.ok) {
+      const d = await r.json();
+      if (d.extract) return 'Wikipedia: ' + d.title + '\n' + d.extract.slice(0, 600) + '\nURL: ' + (d.content_urls?.desktop?.page || '');
     }
-    if (engine === 'openrouter') {
-      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'X-Title': 'iclaw' },
-        body: JSON.stringify({
-          model: model || 'mistralai/mistral-7b-instruct:free',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...messages.map(({ role, content }) => ({ role, content })),
-          ],
-          temperature: 0.2, max_tokens: 4096,
-        }),
-      });
-      if (!res.ok) return `__ERROR__API error: ${res.status}: ${(await res.text()).slice(0,150)}`;
-      const data = await res.json();
-      return data.choices?.[0]?.message?.content || '';
+  } catch {}
+  return null;
+}
+
+// ── Intent detection — does this task need web data? ─────────────────
+const SEARCH_INTENT_RE = /\b(latest|recent|current|today|news|price|stock|weather|score|who won|release|update|2025|2026|now|live|search|find|look up|what is|who is|how to|best|top|vs|compare|trending)\b/i;
+const CODE_ONLY_RE = /^(build|create|make|write|code|implement)\s+(a|an|the)?\s*(app|game|tool|widget|calculator|timer|clock|todo|dashboard|form|ui|component|animation)/i;
+
+async function detectIntent(task) {
+  // Pure coding task — no search needed
+  if (CODE_ONLY_RE.test(task.trim()) && !SEARCH_INTENT_RE.test(task)) return { needsSearch: false, query: null };
+  if (SEARCH_INTENT_RE.test(task)) {
+    // Extract clean query
+    const query = task.replace(/^(search for|find|look up|tell me about)\s+/i, '').slice(0, 120).trim();
+    return { needsSearch: true, query };
+  }
+  return { needsSearch: false, query: null };
+}
+
+// ── Extract files from model response ────────────────────────────────
+function extractFiles(text) {
+  const files = {};
+  const re = /```[\w]*\n(?:\/\/\s*|#\s*|<!--\s*)?([^\s<>]+\.\w+)[^\n]*\n([\s\S]*?)```/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const path = m[1].replace(/-->.*/, '').trim();
+    if (path && !path.includes(' ')) files[path] = m[2].trim();
+  }
+  if (Object.keys(files).length === 0) {
+    const fb = /```(\w+)\n([\s\S]*?)```/g;
+    let i = 0;
+    while ((m = fb.exec(text)) !== null) {
+      const ext = { html:'index.html', css:'styles.css', javascript:'script.js', js:'script.js', python:'main.py', jsx:'app.jsx', ts:'script.ts' };
+      files[ext[m[1]] || 'file' + i + '.' + m[1]] = m[2].trim();
+      i++;
     }
-    // Default: Gemini
-    const geminiModel = model || 'gemini-2.5-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
-    const contents = [
-      { role: 'user', parts: [{ text: systemPrompt }] },
-      { role: 'model', parts: [{ text: 'Understood.' }] },
-      ...messages.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
-    ];
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents, generationConfig: { temperature: 0.2, maxOutputTokens: 4096 } }),
-    });
-    if (!res.ok) return `__ERROR__API error: ${res.status}: ${(await res.text()).slice(0,150)}`;
-    const data = await res.json();
-    return data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
-  } catch(e) { return `__ERROR__${e.message}`; }
+  }
+  return files;
 }
 
-
-// Wrap JS code in a runnable HTML document for preview
-// Scripts are loaded sequentially before code runs — fixes THREE/GSAP/etc not defined errors
-function wrapJsForPreview(code, filename) {
-  const LIB_MAP = {
-    'THREE':  'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
-    'gsap':   'https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js',
-    'anime':  'https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js',
-    'Chart':  'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
-    'd3':     'https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js',
-    'Matter': 'https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js',
-    'PIXI':   'https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js',
-    'p5':     'https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js',
-  };
-  const urls = Object.entries(LIB_MAP)
-    .filter(([token]) => code.includes(token))
-    .map(([, url]) => url);
-
-  const needsCanvas = code.includes('canvas') || code.includes('THREE') ||
-                      code.includes('PIXI') || code.includes('getContext') ||
-                      code.includes('renderer') || code.includes('WebGL');
-
-  const processed = code
-    .replace(/^import\s+.*?from\s+['"][^'"]+['"];?\s*$/gm, '// (import removed)')
-    .replace(/^export\s+default\s+/gm, 'const __default__ = ')
-    .replace(/^export\s+/gm, '');
-
-  const urlsJson = JSON.stringify(urls);
-
-  return '<!DOCTYPE html>\n<html><head><meta charset="UTF-8">\n' +
-    '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
-    '<style>*{box-sizing:border-box}body{margin:0;background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;overflow:hidden}canvas{display:block;}</style>\n' +
-    '</head><body>\n' +
-    (needsCanvas ? '<canvas id="canvas" style="width:100vw;height:100vh;display:block;"></canvas>\n' : '<div id="app" style="padding:20px;min-height:100vh;"></div>\n') +
-    '<script>\n' +
-    '// Load CDN scripts sequentially then run code\n' +
-    'var __urls = ' + urlsJson + ';\n' +
-    'var __code = function() {\n' +
-    '  var canvas = document.getElementById("canvas");\n' +
-    '  if (canvas) {\n' +
-    '    canvas.width = window.innerWidth;\n' +
-    '    canvas.height = window.innerHeight;\n' +
-    '    window.addEventListener("resize", function() {\n' +
-    '      canvas.width = window.innerWidth;\n' +
-    '      canvas.height = window.innerHeight;\n' +
-    '    });\n' +
-    '  }\n' +
-    '  try {\n' +
-    '    (function() {\n' + processed + '\n    })();\n' +
-    '  } catch(e) {\n' +
-    '    document.body.innerHTML = "<div style=\"color:#f87171;padding:20px;font-family:monospace\"><h3>Runtime Error</h3><pre>" + e.message + "</pre></div>";\n' +
-    '    parent.postMessage({ type: "previewError", message: e.message, line: 0 }, "*");\n' +
-    '  }\n' +
-    '};\n' +
-    'function __loadNext(i) {\n' +
-    '  if (i >= __urls.length) { __code(); return; }\n' +
-    '  var s = document.createElement("script");\n' +
-    '  s.src = __urls[i];\n' +
-    '  s.onload = function() { __loadNext(i + 1); };\n' +
-    '  s.onerror = function() { console.warn("CDN failed:", __urls[i]); __loadNext(i + 1); };\n' +
-    '  document.head.appendChild(s);\n' +
-    '}\n' +
-    '__loadNext(0);\n' +
-    '<\/script>\n</body></html>';
-}
-
-function wrapCssForPreview(code, filename) {
-  return `<!DOCTYPE html>
-<html><head><meta charset="UTF-8">
-<style>body{margin:0;background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;padding:20px;}</style>
-<style>${code}</style>
-</head><body>
-<h1>Heading 1</h1><h2>Heading 2</h2><p>Paragraph text with <a href="#">a link</a>.</p>
-<button class="btn">Button</button><button class="btn btn-primary">Primary</button>
-<div class="card" style="margin:16px 0;padding:16px">Card element</div>
-<div class="container"><div class="row"><div class="col">Col 1</div><div class="col">Col 2</div></div></div>
-</body></html>`;
-}
-
-export function useAgent() {
-  const [isRunning, setIsRunning] = useState(false);
-  const [steps, setSteps] = useState([]);
-  const [files, setFiles] = useState({}); // virtual file system: { path: content }
-  const [streamText, setStreamText] = useState('');
-  const abortRef = useRef(false);
-  const workerRef = useRef(null);
-
-  const addStep = (step) => {
-    setSteps(prev => [...prev, { id: uid(), ...step }]);
-  };
-
-  const updateLastStep = (update) => {
-    setSteps(prev => {
-      const updated = [...prev];
-      if (updated.length > 0) {
-        updated[updated.length - 1] = { ...updated[updated.length - 1], ...update };
-      }
-      return updated;
-    });
-  };
-
-  // Execute a single tool call
-  const executeTool = useCallback(async (tool, args) => {
+// ── Tool executor ─────────────────────────────────────────────────────
+function useToolExecutor(files, setFiles, onFileWrite, onPreview) {
+  return useCallback(async (tool, args) => {
     switch (tool) {
       case 'write_file': {
         const { path, content } = args;
+        if (!path || content == null) return 'Error: missing path or content';
         setFiles(prev => ({ ...prev, [path]: content }));
-        return `File written: ${path} (${content.split('\n').length} lines)`;
+        if (onFileWrite) await onFileWrite(path, content).catch(() => {});
+        if (path.endsWith('.html') && onPreview) onPreview(content, path);
+        return 'Written: ' + path + ' (' + content.length + ' chars)';
       }
-
       case 'read_file': {
-        const { path } = args;
-        const content = files[path];
-        if (!content) return `File not found: ${path}`;
-        return `Content of ${path}:\n\`\`\`\n${content}\n\`\`\``;
+        const c = files[args.path];
+        return c ? c.slice(0, 4000) : 'File not found: ' + args.path;
       }
-
-      case 'list_files': {
-        const fileList = Object.keys(files);
-        if (fileList.length === 0) return 'No files written yet.';
-        return 'Files:\n' + fileList.map(f => `- ${f}`).join('\n');
-      }
-
+      case 'list_files':
+        return Object.keys(files).length ? Object.keys(files).join('\n') : 'No files yet.';
       case 'web_search': {
-        const { query } = args;
-        const results = await browserSearch(query);
-        return `Search results for "${query}":\n\n${results}`;
+        const results = await webSearch(args.query || '');
+        return results || 'No results for: ' + args.query;
       }
-
       case 'run_code': {
-        const { code, language = 'javascript' } = args;
-        const { output, errors } = await runInSandbox(code, language);
-        if (errors.length > 0) {
-          return `Output:\n${output}\n\nErrors:\n${errors.join('\n')}`;
-        }
-        return `Output:\n${output}`;
+        try {
+          const fn = new Function('return (async () => { ' + (args.code || '') + ' })()');
+          const out = await fn();
+          return 'Result: ' + JSON.stringify(out ?? 'done');
+        } catch (e) { return 'Error: ' + e.message; }
       }
-
-      case 'finish': {
-        return '__DONE__';
-      }
-
+      case 'finish':
+        return args.summary || 'Done.';
       default:
-        return `Unknown tool: ${tool}`;
+        return 'Unknown tool: ' + tool;
     }
-  }, [files]);
+  }, [files, setFiles, onFileWrite, onPreview]);
+}
 
-  // Main agent loop
-  const runAgent = useCallback(async (task, apiKey, engine = 'gemini', model = 'gemini-2.5-flash', onFileWrite, onPreview) => {
-    // If no key provided, try to read from DB
-    let resolvedKey = apiKey;
-    let resolvedEngine = engine;
-    if (!resolvedKey) {
-      for (const p of ['groq', 'gemini', 'openrouter']) {
-        const k = await getSetting(`key_${p}`, '');
+// ── Robust JSON parser ────────────────────────────────────────────────
+function parseToolCall(text) {
+  // Strategy 1: find JSON with "tool" key
+  const matches = text.match(/\{[^{}]*"tool"[^{}]*\}/g) || [];
+  for (const m of matches) {
+    try { const j = JSON.parse(m); if (j.tool) return j; } catch {}
+  }
+  // Strategy 2: greedy match
+  const greedy = text.match(/\{[\s\S]*?"tool"[\s\S]*?\}/);
+  if (greedy) { try { const j = JSON.parse(greedy[0]); if (j.tool) return j; } catch {} }
+  // Strategy 3: extract write_file manually
+  if (text.includes('write_file')) {
+    const pathM = text.match(/"path"\s*:\s*"([^"]+)"/);
+    const htmlM = text.match(/<!DOCTYPE[\s\S]+?<\/html>/i);
+    if (pathM && htmlM) return { tool: 'write_file', args: { path: pathM[1], content: htmlM[0] }, thought: 'extracted' };
+  }
+  // Strategy 4: raw HTML/JS code blocks
+  const htmlM = text.match(/```html\n([\s\S]+?)```/);
+  if (htmlM) return { tool: 'write_file', args: { path: 'index.html', content: htmlM[1].trim() }, thought: 'extracted html' };
+  const jsM = text.match(/```(?:js|javascript)\n([\s\S]+?)```/);
+  if (jsM) return { tool: 'write_file', args: { path: 'script.js', content: jsM[1].trim() }, thought: 'extracted js' };
+  // Strategy 5: finish intent
+  const low = text.toLowerCase();
+  if (low.includes('finish') || low.includes('complete') || low.includes('done')) {
+    return { tool: 'finish', args: { summary: text.slice(0, 200) }, thought: 'detected finish' };
+  }
+  return null;
+}
+
+// ── System prompts ────────────────────────────────────────────────────
+const CLOUD_SYSTEM = `You are iclaw, an autonomous coding agent. You MUST complete tasks and ALWAYS call finish() when done.
+
+TOOLS — output exactly ONE JSON object per turn, nothing else:
+{"tool":"write_file","args":{"path":"index.html","content":"FULL CONTENT"},"thought":"why"}
+{"tool":"web_search","args":{"query":"specific query"},"thought":"why"}
+{"tool":"finish","args":{"summary":"what was done"},"thought":"done"}
+
+STRICT RULES:
+1. Output ONLY a single JSON object — no text before or after
+2. For ANY web/UI task: write ONE complete index.html with ALL CSS+JS inline
+3. IMMEDIATELY call finish() after writing files — never loop back
+4. If task needs current info: web_search first, then write_file, then finish()
+5. Never ask for clarification — just do the task decisively
+6. Max ${MAX_STEPS} steps`;
+
+const LOCAL_SEARCH_SYSTEM = 'You are a helpful assistant. Using ONLY the search results provided, answer the question accurately and concisely. Do not use training data. Quote specific facts from the results.';
+const LOCAL_CODE_SYSTEM = 'You are an expert web developer. Output ONLY complete HTML with all CSS and JS inline. No explanation, no markdown fences. Start with <!DOCTYPE html>.';
+
+// ── Main hook ─────────────────────────────────────────────────────────
+export function useAgent() {
+  const [isRunning, setIsRunning]   = useState(false);
+  const [steps, setSteps]           = useState([]);
+  const [files, setFiles]           = useState({});
+  const [streamText, setStreamText] = useState('');
+  const abortRef = useRef(false);
+  const filesRef = useRef({});
+  filesRef.current = files;
+
+  const addStep    = s => setSteps(prev => [...prev, { id: uid(), ...s }]);
+  const updateLast = u => setSteps(prev => { const a = [...prev]; if (a.length) a[a.length-1] = { ...a[a.length-1], ...u }; return a; });
+
+  const runAgent = useCallback(async (task, apiKey, engine, model, onFileWrite, onPreview) => {
+    setIsRunning(true); setSteps([]); setFiles({}); setStreamText('');
+    filesRef.current = {};
+    abortRef.current = false;
+
+    // ── Shared file ops ──────────────────────────────────────────────
+    const setFilesSync = (updater) => {
+      filesRef.current = typeof updater === 'function' ? updater(filesRef.current) : updater;
+      setFiles(filesRef.current);
+    };
+
+    // ── Key resolution ───────────────────────────────────────────────
+    let resolvedKey = apiKey, resolvedEngine = engine;
+    if (!resolvedKey || resolvedKey === '') {
+      for (const p of ['gemini','groq','cerebras','openrouter']) {
+        const k = await getSetting('key_' + p, '');
         if (k) { resolvedKey = k; resolvedEngine = p; break; }
       }
     }
-    apiKey = resolvedKey;
-    engine = resolvedEngine;
-    setIsRunning(true);
-    setSteps([]);
-    setFiles({});
-    abortRef.current = false;
 
-    const AGENT_SYSTEM = `You are iclaw, an elite autonomous coding agent built by a world-class engineering team. You produce professional, portfolio-worthy code.
+    const isLocal = resolvedEngine === 'wasm' || resolvedKey === 'wasm';
 
-Available tools (respond with JSON tool calls ONLY):
-- write_file(path, content) — write code to a file
-- read_file(path) — read a file you wrote
-- list_files() — list all written files
-- web_search(query) — search the web for current info, libraries, APIs
-- run_code(code, language) — execute JS/HTML and see console output
-- finish(summary) — call when task is complete
-
-TOOL CALL FORMAT (strict JSON, no markdown around it):
-{"tool":"tool_name","args":{"param":"value"},"thought":"why you are doing this"}
-
-CODE QUALITY STANDARDS — non-negotiable:
-- Zero placeholders or TODOs — every line is real, working code
-- CSS must have: smooth transitions, hover/focus/active states, animations
-- Use CSS custom properties for colors and spacing
-- Mobile-first responsive design
-- Proper error handling and input validation
-- Semantic HTML with ARIA labels
-- Use requestAnimationFrame for animations, never setTimeout
-- CSS Grid/Flexbox for layouts
-- Glassmorphism, gradients, shadows for visual depth
-
-WORKFLOW:
-1. web_search if you need current info, library docs, or inspiration
-2. write_file for each file with complete production code
-3. run_code to test — fix any errors automatically
-4. finish() with summary of what was built
-
-Max ${MAX_STEPS} steps. Be efficient but never sacrifice quality.`;
-
-    const messages = [
-      { role: 'user', content: `Task: ${task}\n\nStart by planning, then execute step by step using tools.` }
-    ];
-
-    addStep({ type: 'plan', status: 'done', label: 'Starting agent loop', thought: '' });
-
-    // ── LOCAL MODEL FAST PATH ────────────────────────────────────────
-    // Small local models (1-3B) can't reliably output JSON tool calls.
-    // Instead: ask directly for code, extract HTML, done in one shot.
-    if (engine === 'wasm' || apiKey === 'wasm') {
-      addStep({ type: 'think', status: 'running', label: 'Generating code locally...' });
+    // ════════════════════════════════════════════════════════════════
+    // LOCAL MODEL PATH — intent detect → optional search → generate
+    // ════════════════════════════════════════════════════════════════
+    if (isLocal) {
       try {
-        const localPrompt = 'Task: ' + task + '\n\nWrite a complete self-contained HTML file. Include all CSS and JS inline. Dark theme. Output ONLY the HTML starting with <!DOCTYPE html>:';
-        const code = await callWasm([{ role: 'user', content: localPrompt }],
-          'You are an expert web developer. Output ONLY complete HTML code, no explanation, no markdown, no fences. Start with <!DOCTYPE html>.');
-        updateLastStep({ status: 'done', label: 'Code generated' });
-        let html = code.trim();
-        const fm = html.match(/```(?:html)?\n?([\s\S]+?)```/s);
-        if (fm) html = fm[1].trim();
-        if (!html.startsWith('<!') && !html.startsWith('<html')) {
-          html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;padding:20px}</style></head><body>' + html + '</body></html>';
+        // Step 1: Detect intent
+        addStep({ type: 'plan', status: 'running', label: 'Detecting intent...' });
+        const { needsSearch, query } = await detectIntent(task);
+        updateLast({ status: 'done', label: needsSearch ? 'Needs web data: ' + (query||'').slice(0,40) : 'Code task — no search needed' });
+
+        // Step 2: Web search if needed
+        let searchContext = '';
+        if (needsSearch && query) {
+          addStep({ type: 'web_search', status: 'running', label: 'Searching: ' + query.slice(0, 40) });
+          const results = await webSearch(query);
+          if (results) {
+            searchContext = '\n\n=== LIVE WEB DATA (' + new Date().toLocaleDateString() + ') ===\n' + results + '\n=== END WEB DATA ===\n';
+            updateLast({ status: 'done', label: 'Found results for: ' + query.slice(0,40), detail: results.slice(0,300) });
+          } else {
+            updateLast({ status: 'warn', label: 'No results — answering from model knowledge' });
+          }
         }
-        addStep({ type: 'write_file', status: 'done', label: 'Writing index.html' });
-        setFiles(prev => ({ ...prev, 'index.html': html }));
-        if (onFileWrite) await onFileWrite('index.html', html);
-        if (onPreview) onPreview(html, 'index.html');
-        addStep({ type: 'finish', status: 'done', label: 'Done — tap the file to preview' });
+
+        // Step 3: Generate
+        addStep({ type: 'think', status: 'running', label: needsSearch ? 'Summarizing search results...' : 'Generating code...' });
+        setStreamText('');
+        let accumulated = '';
+
+        let prompt, sysPrompt;
+        if (needsSearch) {
+          prompt = searchContext + '\nQuestion: ' + task + '\n\nAnswer using ONLY the web data above:';
+          sysPrompt = LOCAL_SEARCH_SYSTEM;
+        } else {
+          prompt = 'Task: ' + task + '\n\nWrite a complete self-contained HTML file. All CSS and JS inline. Dark theme. Output ONLY the HTML starting with <!DOCTYPE html>:';
+          sysPrompt = LOCAL_CODE_SYSTEM;
+        }
+
+        const result = await callWasm(
+          [{ role: 'user', content: prompt }],
+          sysPrompt,
+          (chunk) => { accumulated += chunk; setStreamText(accumulated); }
+        );
+        updateLast({ status: 'done', label: needsSearch ? 'Answer ready' : 'Code generated' });
+        setStreamText('');
+
+        // Step 4: Output
+        if (needsSearch) {
+          // Text answer — inject into chat via onPreview as a readable page
+          addStep({ type: 'finish', status: 'done', label: 'Done', detail: result });
+          if (onPreview) {
+            const answerHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{background:#030712;color:#e2e8f0;font-family:sans-serif;padding:20px;max-width:600px;margin:0 auto;line-height:1.6}h1{color:#22d3ee;font-size:1.1rem}p{margin:8px 0}</style></head><body><h1>' + task.slice(0,60) + '</h1><p>' + result.replace(/\n/g,'</p><p>') + '</p></body></html>';
+            onPreview(answerHtml, 'answer.html');
+          }
+        } else {
+          let html = result.trim();
+          // Strip markdown fences if model added them
+          const fenceStart = html.indexOf('```');
+          const fenceEnd = html.lastIndexOf('```');
+          if (fenceStart !== -1 && fenceEnd > fenceStart + 3) {
+            const inner = html.slice(fenceStart + 3, fenceEnd);
+            const nl = inner.indexOf('\n');
+            html = (nl >= 0 ? inner.slice(nl + 1) : inner).trim();
+          }
+          if (!html.startsWith('<!') && !html.startsWith('<html')) {
+            html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;padding:20px}</style></head><body>' + html + '</body></html>';
+          }
+          addStep({ type: 'write_file', status: 'done', label: 'index.html written' });
+          setFilesSync(prev => ({ ...prev, 'index.html': html }));
+          if (onFileWrite) await onFileWrite('index.html', html).catch(() => {});
+          if (onPreview) onPreview(html, 'index.html');
+          addStep({ type: 'finish', status: 'done', label: 'Done — tap to preview' });
+        }
       } catch (err) {
-        addStep({ type: 'error', status: 'error', label: err.message, detail: err.message });
+        addStep({ type: 'error', status: 'error', label: err.message });
+        setStreamText('');
       }
       setIsRunning(false);
       return;
     }
-    // ── END LOCAL MODEL FAST PATH ────────────────────────────────────
 
+    // ════════════════════════════════════════════════════════════════
+    // CLOUD MODEL PATH — full JSON tool-call agentic loop
+    // ════════════════════════════════════════════════════════════════
+    if (!resolvedKey) {
+      addStep({ type: 'error', status: 'error', label: 'No API key. Set one in Settings.' });
+      setIsRunning(false); return;
+    }
+
+    // Tool executor using ref for latest files
+    const executeTool = async (tool, args) => {
+      switch (tool) {
+        case 'write_file': {
+          const { path, content } = args;
+          if (!path || content == null) return 'Error: missing args';
+          setFilesSync(prev => ({ ...prev, [path]: content }));
+          if (onFileWrite) await onFileWrite(path, content).catch(() => {});
+          if (path.endsWith('.html') && onPreview) onPreview(content, path);
+          return 'Written: ' + path;
+        }
+        case 'read_file': return filesRef.current[args.path] || 'Not found';
+        case 'list_files': return Object.keys(filesRef.current).join('\n') || 'No files yet';
+        case 'web_search': return await webSearch(args.query || '') || 'No results';
+        case 'run_code': {
+          try { return 'Result: ' + JSON.stringify(await new Function('return (async()=>{' + args.code + '})()')() ?? 'done'); }
+          catch(e) { return 'Error: ' + e.message; }
+        }
+        case 'finish': return args.summary || 'Done';
+        default: return 'Unknown tool: ' + tool;
+      }
+    };
+
+    const messages = [{ role: 'user', content: 'Task: ' + task + '\n\nStart now. Use write_file to create files, then finish() when done.' }];
+    addStep({ type: 'plan', status: 'done', label: 'Starting agent' });
 
     let stepCount = 0;
+    let consecutiveFailures = 0;
 
     while (stepCount < MAX_STEPS && !abortRef.current) {
       stepCount++;
 
+      let rawText;
       try {
-        // Call active provider — WASM or cloud
-        let rawText;
-        try {
-          if (engine === 'wasm' || apiKey === 'wasm') {
-            addStep({ type: 'think', status: 'running', label: 'Thinking locally...' });
-            rawText = await callWasm(messages, AGENT_SYSTEM_LOCAL);
-            updateLastStep({ status: 'done', label: 'Local inference complete' });
-          } else {
-            rawText = await callProviderQueued(
-              apiKey, engine, model, AGENT_SYSTEM, messages, 0.2,
-              (retryMsg) => updateLastStep({ status: 'retrying', label: retryMsg })
-            );
-          }
-        } catch(fetchErr) {
-          addStep({ type: 'error', status: 'error', label: `Error: ${fetchErr.message.slice(0,80)}`, detail: fetchErr.message });
-          break;
-        }
-
-        // Parse JSON tool call from response
-        let toolCall = null;
-        const jsonMatch = rawText.match(/\{[\s\S]*"tool"[\s\S]*\}/);
-        if (jsonMatch) {
-          try { toolCall = JSON.parse(jsonMatch[0]); } catch {}
-        }
-
-        if (!toolCall) {
-          // Model gave text instead of JSON — retry with stronger instruction
-          if (stepCount < 3) {
-            messages.push({ role: 'assistant', content: rawText });
-            messages.push({ role: 'user', content: 'You must respond with a JSON tool call ONLY. No markdown, no explanation. Format: {"tool":"write_file","args":{"path":"index.html","content":"..."},"thought":"..."}\n\nNow write the code using write_file tool.' });
-            updateLastStep({ status: 'running', label: 'Retrying with tool call...' });
-            continue;
-          }
-          // After retries, try to extract any code from the text response
-          const htmlMatch = rawText.match(/```(?:html)?\n([\s\S]*?)```/);
-          const jsMatch = rawText.match(/```(?:javascript|js)\n([\s\S]*?)```/);
-          if (htmlMatch || jsMatch) {
-            const code = htmlMatch?.[1] || jsMatch?.[1];
-            const path = htmlMatch ? 'index.html' : 'script.js';
-            addStep({ type: 'write_file', status: 'running', label: `Extracting ${path} from response...` });
-            const result = await executeTool('write_file', { path, content: code });
-            updateLastStep({ status: 'done', detail: result });
-            if (onFileWrite) await onFileWrite(path, code);
-            if (path.endsWith('.html') && onPreview) onPreview(code, path);
-            if (path.endsWith('.js') && onPreview) onPreview(wrapJsForPreview(code, path), path);
-          }
-          addStep({ type: 'finish', status: 'done', label: 'Agent finished', detail: rawText.slice(0, 200) });
-          messages.push({ role: 'assistant', content: rawText });
-          break;
-        }
-
-        const { tool, args = {}, thought = '' } = toolCall;
-
-        // Add step to UI
-        const stepLabel = getStepLabel(tool, args);
-        addStep({ type: tool, status: 'running', label: stepLabel, thought, detail: '' });
-
-        // Execute tool
-        const result = await executeTool(tool, args);
-
-        if (result === '__DONE__') {
-          updateLastStep({ status: 'done', detail: args.summary || 'Task complete' });
-          break;
-        }
-
-        updateLastStep({ status: 'done', detail: result.slice(0, 300) });
-
-        // Special handling for write_file — notify parent
-        if (tool === 'write_file' && onFileWrite) {
-          await onFileWrite(args.path, args.content);
-          // Auto-preview HTML, JS, CSS, SVG files
-          if (onPreview) {
-            const p = args.path;
-            const c = args.content;
-            if (p.endsWith('.html') || p.endsWith('.svg')) {
-              onPreview(c, p);
-            } else if (p.endsWith('.js') || p.endsWith('.ts') || p.endsWith('.jsx') || p.endsWith('.tsx')) {
-              // Wrap JS in runnable HTML doc
-              const html = wrapJsForPreview(c, p);
-              onPreview(html, p);
-            } else if (p.endsWith('.css')) {
-              const html = wrapCssForPreview(c, p);
-              onPreview(html, p);
-            }
-          }
-        }
-
-        // Add result to message history
-        messages.push({ role: 'assistant', content: JSON.stringify(toolCall) });
-        messages.push({ role: 'user', content: `Tool result: ${result}` });
-
-        // Check if done
-        if (tool === 'finish') break;
-
-      } catch (err) {
-        addStep({ type: 'error', status: 'error', label: 'Error', detail: err.message });
+        rawText = await callProviderQueued(
+          resolvedKey, resolvedEngine, model, CLOUD_SYSTEM, messages, 0.2,
+          (msg) => updateLast({ status: 'retrying', label: msg })
+        );
+      } catch (e) {
+        addStep({ type: 'error', status: 'error', label: 'API: ' + e.message.slice(0,80) });
         break;
       }
+
+      messages.push({ role: 'assistant', content: rawText });
+
+      const toolCall = parseToolCall(rawText);
+
+      if (!toolCall) {
+        consecutiveFailures++;
+        // Try to extract files from free-form response
+        const extracted = extractFiles(rawText);
+        if (Object.keys(extracted).length > 0) {
+          for (const [path, content] of Object.entries(extracted)) {
+            addStep({ type: 'write_file', status: 'running', label: 'Extracting ' + path });
+            await executeTool('write_file', { path, content });
+            updateLast({ status: 'done', label: 'Extracted ' + path });
+          }
+          addStep({ type: 'finish', status: 'done', label: 'Files extracted from response' });
+          break;
+        }
+        if (consecutiveFailures >= 2) {
+          addStep({ type: 'finish', status: 'warn', label: 'Could not parse response — stopping' });
+          break;
+        }
+        messages.push({ role: 'user', content: 'Respond with ONLY a JSON tool call. Example: {"tool":"write_file","args":{"path":"index.html","content":"..."},"thought":"..."}' });
+        continue;
+      }
+
+      consecutiveFailures = 0;
+      const { tool, args, thought } = toolCall;
+
+      const stepLabel = tool === 'web_search' ? 'Searching: ' + (args.query||'').slice(0,40)
+        : tool === 'write_file' ? 'Writing: ' + (args.path||'')
+        : tool === 'finish' ? 'Finishing'
+        : tool;
+
+      addStep({ type: tool, status: 'running', label: stepLabel, thought });
+
+      const result = await executeTool(tool, args);
+      updateLast({ status: 'done', detail: typeof result === 'string' ? result.slice(0,300) : '' });
+
+      if (tool === 'finish') {
+        addStep({ type: 'finish', status: 'done', label: 'Task complete' });
+        break;
+      }
+
+      messages.push({ role: 'user', content: 'Tool result: ' + (typeof result === 'string' ? result.slice(0,2000) : JSON.stringify(result)) });
     }
 
-    if (stepCount >= MAX_STEPS) {
-      addStep({ type: 'finish', status: 'warn', label: `Max steps (${MAX_STEPS}) reached`, detail: 'Agent stopped.' });
-    }
-
-    setIsRunning(false);
-    return Object.keys(files).length > 0 ? files : null;
-  }, [executeTool]);
-
-  const stopAgent = useCallback(() => {
-    abortRef.current = true;
+    if (stepCount >= MAX_STEPS) addStep({ type: 'finish', status: 'warn', label: 'Max steps reached' });
     setIsRunning(false);
   }, []);
 
-  const clearAgent = useCallback(() => {
-    setSteps([]);
-    setFiles({});
-  }, []);
+  const stopAgent  = useCallback(() => { abortRef.current = true; setIsRunning(false); }, []);
+  const clearAgent = useCallback(() => { setSteps([]); setFiles({}); setStreamText(''); }, []);
 
   return { isRunning, steps, files, streamText, runAgent, stopAgent, clearAgent };
-}
-
-function getStepLabel(tool, args) {
-  switch (tool) {
-    case 'write_file': return `Writing ${args.path || 'file'}`;
-    case 'read_file': return `Reading ${args.path || 'file'}`;
-    case 'list_files': return 'Listing files';
-    case 'web_search': return `Searching: ${(args.query || '').slice(0, 40)}`;
-    case 'run_code': return `Running ${args.language || 'code'}`;
-    case 'finish': return 'Finishing up';
-    default: return tool;
-  }
 }
