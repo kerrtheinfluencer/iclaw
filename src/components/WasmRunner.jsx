@@ -3,28 +3,27 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Loader2, Cpu, X, Download, Check, AlertTriangle, Zap, Globe } from 'lucide-react';
 
 // ── WebGPU models (confirmed working MLC IDs) ────────────────────────
-// All models use q4f16_1 (4-bit weights, 16-bit activations) — smallest possible for WebGPU
-// Models are downloaded in shards by WebLLM — Safari may kill mid-download if screen locks
+// Crash at shard 55/83 on Llama 1B = ~600MB GPU limit in current session
+// Root cause: other apps consuming A18 unified memory
+// Fix: use models with fewer total shards / smaller per-shard GPU allocation
 const WEBGPU_MODELS = {
+  'smollm2-360m-webgpu': {
+    mlcId: 'SmolLM2-360M-Instruct-q4f16_1-MLC',
+    label: 'SmolLM2 360M ⚡', size: '~200MB',
+    desc: 'WebGPU · ultra tiny · ~35 shards · most reliable', type: 'webgpu', safe: true,
+    vramMB: 300,
+  },
   'llama3.2-1b-webgpu': {
     mlcId: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
-    label: 'Llama 3.2 1B', size: '~700MB',
-    desc: '4-bit · WebGPU · fastest · most stable', type: 'webgpu', safe: true,
+    label: 'Llama 3.2 1B ⚡', size: '~700MB',
+    desc: 'WebGPU · 83 shards · close all apps first', type: 'webgpu', safe: true,
+    vramMB: 900,
   },
   'qwen2.5-coder-1.5b-webgpu': {
     mlcId: 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC',
-    label: 'Qwen Coder 1.5B', size: '~850MB',
-    desc: '4-bit · WebGPU · best for code', type: 'webgpu', safe: true,
-  },
-  'llama3.2-3b-webgpu': {
-    mlcId: 'Llama-3.2-3B-Instruct-q4f16_1-MLC',
-    label: 'Llama 3.2 3B', size: '~1.7GB',
-    desc: '4-bit · WebGPU · smarter · needs strong WiFi', type: 'webgpu', safe: false,
-  },
-  'phi3.5-mini-webgpu': {
-    mlcId: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
-    label: 'Phi 3.5 Mini', size: '~2.1GB',
-    desc: '4-bit · WebGPU · smartest · needs strong WiFi', type: 'webgpu', safe: false,
+    label: 'Qwen Coder 1.5B ⚡', size: '~850MB',
+    desc: 'WebGPU · best for coding · close all apps first', type: 'webgpu', safe: true,
+    vramMB: 1100,
   },
 };
 
@@ -255,47 +254,111 @@ export function useWasmLLM() {
       const gpuOk = await checkGPU();
 
       if (isGPUModel && gpuOk) {
-        setStatus('downloading'); setProgressText('Loading WebLLM...');
+        setStatus('downloading');
+        const model = WEBGPU_MODELS[id];
 
-        // Keep screen alive during download — Safari kills fetch streams if screen locks
-        let wakeLock = null;
+        // Check available storage quota before downloading
         try {
-          if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
-        } catch {}
-        const releaseWake = async () => { try { await wakeLock?.release(); } catch {} };
+          if (navigator.storage && navigator.storage.estimate) {
+            const est = await navigator.storage.estimate();
+            const availMB = Math.floor((est.quota - est.usage) / 1048576);
+            const modelSizes = { 'smollm2-360m-webgpu': 250, 'llama3.2-1b-webgpu': 750, 'qwen2.5-coder-1.5b-webgpu': 950 };
+            const neededMB = modelSizes[id] || 1000;
+            setProgressText('Storage: ' + availMB + 'MB free, need ~' + neededMB + 'MB');
+            if (availMB < neededMB) {
+              _loading = false;
+              setStatus('error');
+              setError('Not enough storage (' + availMB + 'MB free, need ' + neededMB + 'MB). Fix: Settings > Safari > Clear History and Website Data, then retry.');
+              return;
+            }
+          }
+        } catch (_) {}
 
-        // Re-acquire wake lock if user returns to tab
+        setProgressText('Loading engine...');
+
+        // Probe available GPU memory before starting
+        // Attempt to allocate increasing buffers until failure — tells us actual GPU budget
+        let probedGPUMB = null;
+        try {
+          const adapter = await navigator.gpu.requestAdapter();
+          const device = await adapter.requestDevice();
+          // Try allocating buffers until we hit the limit
+          const probeBuffers = [];
+          for (let mb = 50; mb <= 2000; mb += 50) {
+            try {
+              const buf = device.createBuffer({ size: mb * 1024 * 1024, usage: GPUBufferUsage.STORAGE });
+              probeBuffers.push(buf);
+              probedGPUMB = mb;
+            } catch { break; }
+          }
+          // Clean up probe buffers
+          probeBuffers.forEach(b => b.destroy());
+          device.destroy();
+          // Check if model fits
+          if (probedGPUMB !== null && model.vramMB && probedGPUMB < model.vramMB) {
+            _loading = false;
+            setStatus('error');
+            setError('Only ' + probedGPUMB + 'MB GPU memory available, but ' + model.label + ' needs ~' + model.vramMB + 'MB. Close ALL other apps (swipe them away), then retry. Or try SmolLM2 360M which only needs 300MB.');
+            return;
+          }
+          if (probedGPUMB !== null) {
+            setProgressText('GPU: ' + probedGPUMB + 'MB free · starting download...');
+          }
+        } catch (_gpuErr) {
+          // Probe failed — continue anyway
+        }
+
+        // Wake lock — prevents Safari from suspending the download
+        let wakeLock = null;
+        try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+        const releaseWake = async () => { try { if (wakeLock) await wakeLock.release(); } catch {} };
         const onVisible = async () => {
           if (document.visibilityState === 'visible' && _loading) {
             try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch {}
           }
         };
         document.addEventListener('visibilitychange', onVisible);
+        const cleanup = () => { document.removeEventListener('visibilitychange', onVisible); releaseWake(); };
 
-        const webllm = await loadWebLLM();
-        const model = WEBGPU_MODELS[id];
-        setProgressText('Downloading ' + model.label + '...');
         let engine;
         try {
+          const webllm = await loadWebLLM();
+          setProgressText('Starting ' + model.label + ' download...');
           engine = await webllm.CreateMLCEngine(model.mlcId, {
-            initProgressCallback: (info) => { setProgress(info.progress || 0); setProgressText(info.text || '...'); },
+            initProgressCallback: (info) => {
+              const pct = info.progress || 0;
+              setProgress(pct);
+              const txt = info.text || '';
+              // Show shard progress e.g. params_shard_3.bin [4/47]
+              const numMatch = txt.match(/(\d+)\/(\d+)/);
+              if (numMatch) {
+                setProgressText('File ' + numMatch[1] + '/' + numMatch[2] + ' · ' + Math.round(pct * 100) + '%');
+              } else {
+                setProgressText(txt.slice(0, 55) || (Math.round(pct * 100) + '%'));
+              }
+            },
           });
         } catch (mlcErr) {
-          // Large models crash Safari with out-of-memory
           _loading = false;
+          cleanup();
           setStatus('error');
-          setError(model.safe === false
-            ? 'Not enough RAM or download interrupted. Try Llama 3.2 1B (700MB) — most stable on iPhone.'
-            : 'Download failed: ' + mlcErr.message + '. Check WiFi and try again.');
-          document.removeEventListener('visibilitychange', onVisible);
-          await releaseWake();
+          const msg = (mlcErr && mlcErr.message) ? mlcErr.message.toLowerCase() : '';
+          if (msg.indexOf('storage') >= 0 || msg.indexOf('quota') >= 0) {
+            setError('Storage quota hit mid-download. Go to Settings > Safari > Clear History and Website Data, then retry.');
+          } else if (msg.indexOf('fetch') >= 0 || msg.indexOf('network') >= 0 || msg.indexOf('failed') >= 0) {
+            setError('Network error — a shard failed to download. This is usually a WiFi drop or GitHub CDN timeout. Retry on strong WiFi.');
+          } else if (msg.indexOf('memory') >= 0 || msg.indexOf('oom') >= 0) {
+            setError('GPU memory full. Close all other apps, then retry. Or use Llama 3.2 1B instead.');
+          } else {
+            setError('Failed: ' + (mlcErr ? mlcErr.message : 'unknown') + ' — retry or try Llama 3.2 1B.');
+          }
           return;
         }
+
         _engine = engine; _engineType = 'webgpu'; _loadedModelId = id;
         _loading = false; setLoadedModelId(id); setStatus('ready'); setIsModelReady(true);
-        setProgressText(model.label + ' — ready ⚡');
-        document.removeEventListener('visibilitychange', onVisible);
-        await releaseWake();
+        setProgressText(model.label + ' ready');
+        cleanup();
       } else {
         const model = CPU_MODELS[id] || CPU_MODELS['qwen2.5-coder-1.5b'];
         setStatus('downloading'); setProgressText('Downloading ' + model.label + ' (' + model.size + ')...');
@@ -408,8 +471,7 @@ export function WasmModelPicker({ wasmLLM, onClose }) {
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <p className={'text-sm font-mono font-medium ' + (isSelected ? (isGPU ? 'text-neon-cyan' : 'text-neon-green') : 'text-steel-200')}>{model.label}</p>
                   {isLoaded && <span className="text-[9px] font-mono text-neon-green bg-neon-green/10 px-1.5 py-0.5 rounded-full">LOADED</span>}
-                  {model.safe === true && <span className="text-[9px] font-mono text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full">✓ STABLE</span>}
-                  {model.safe === false && <span className="text-[9px] font-mono text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full">⚠ HIGH RAM</span>}
+                  {model.safe === true && <span className="text-[9px] font-mono text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full">✓ Works on iPhone</span>}
                 </div>
                 <p className="text-[10px] text-steel-500 mt-0.5">{model.size} · {model.desc}</p>
               </div>
