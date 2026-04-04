@@ -262,7 +262,7 @@ export default function App() {
               multiAgent.runMultiAgent(task, key, eng, model, handleInject, handlePreview);
             }}
         onStop={multiAgent.stopMultiAgent} onClear={multiAgent.clearMultiAgent}
-        apiKey={agentKeys[llm.activeEngine] || agentApiKey} activeEngine={llm.activeEngine} onPreviewFile={handlePreview}
+        apiKey={agentKeys[llm.activeEngine] || agentApiKey} activeEngine={llm.activeEngine} streamText={multiAgent.streamText} onPreviewFile={handlePreview}
       />
       <AgentPanel
         isOpen={agentOpen} onClose={() => setAgentOpen(false)}
@@ -276,7 +276,7 @@ export default function App() {
             }}
         onStop={agent.stopAgent} onClear={agent.clearAgent}
         apiKey={agentKeys[llm.activeEngine] || agentApiKey} activeModel={llm.activeModel}
-        activeEngine={llm.activeEngine}
+        activeEngine={llm.activeEngine} streamText={agent.streamText}
         onPreviewFile={handlePreview}
       />
     </div>
