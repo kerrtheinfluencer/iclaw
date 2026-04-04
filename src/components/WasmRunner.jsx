@@ -36,9 +36,8 @@ const CPU_MODELS = {
 };
 
 const SYSTEM_PROMPT = `You are iclaw, a helpful AI assistant and expert coder running locally on device.
-For casual chat: respond naturally and concisely.
 For coding: write complete working code, no placeholders, use fenced code blocks.
-When web search results are provided in the context, use them to give accurate up-to-date answers.`;
+CRITICAL RULE: When you see [Web search:...] or [LIVE] or [System:...] data in the context, you MUST use those exact numbers and facts in your answer. Never say "as of my last update" or reference 2023/2024 training data if search results are provided. The search results ARE the current answer. Quote them directly.`;
 
 // ── Web search for local models ──────────────────────────────────────
 const CORS = 'https://corsproxy.io/?url=';
@@ -48,6 +47,29 @@ const CODE_RE = /^(write|create|build|make|implement|fix|debug|refactor)\s/i;
 const DATE_RE = /\b(date|time|today|now|current(ly)?|this (week|month|year)|what day|what time)\b/i;
 
 async function doSearch(query) {
+  // For stock/price queries, try Yahoo Finance first
+  const isFinancial = /\b(stock|price|share|market|nasdaq|nyse|ticker|tsla|aapl|googl|amzn|btc|bitcoin|crypto|usd|jmd|forex|rate)\b/i.test(query);
+  if (isFinancial) {
+    const tickers = query.match(/\b[A-Z]{1,5}\b/g) || [];
+    const commonTickers = ['TSLA','AAPL','GOOGL','AMZN','MSFT','META','NVDA','BTC','ETH'];
+    const ticker = tickers.find(t => commonTickers.includes(t)) || tickers[0];
+    if (ticker) {
+      try {
+        const r = await fetch('https://query1.finance.yahoo.com/v8/finance/chart/' + ticker + '?interval=1d&range=1d', { signal: AbortSignal.timeout(5000) });
+        if (r.ok) {
+          const d = await r.json();
+          const price = d?.chart?.result?.[0]?.meta?.regularMarketPrice;
+          const prev = d?.chart?.result?.[0]?.meta?.previousClose;
+          const name = d?.chart?.result?.[0]?.meta?.longName || ticker;
+          if (price) {
+            const change = prev ? ((price - prev) / prev * 100).toFixed(2) : null;
+            return '[LIVE] ' + name + ' (' + ticker + ') — $' + price.toFixed(2) + (change ? ' (' + (change > 0 ? '+' : '') + change + '% today)' : '') + '\nSource: Yahoo Finance, fetched ' + new Date().toLocaleTimeString();
+          }
+        }
+      } catch {}
+    }
+  }
+
   for (const inst of SEARXNG) {
     try {
       const url = inst + '/search?q=' + encodeURIComponent(query) + '&format=json&categories=general&language=en';
@@ -127,9 +149,9 @@ async function enrichWithSearch(messages, onSearching) {
   const enriched = [...messages.slice(0, -1)];
   enriched.push({
     role: 'user',
-    content: '[System: Today is ' + dateStr + '. Web search results for "' + query + '":]\n\n' + results + '\n\n[Use these results to answer. Do not say you cannot access the internet.]'
+    content: '=== LIVE WEB DATA (fetched ' + new Date().toLocaleTimeString() + ', ' + dateStr + ') ===\n\n' + results + '\n\n=== END WEB DATA ===\nIMPORTANT: Answer using ONLY the data above. Do not use your training data for this question.'
   });
-  enriched.push({ role: 'assistant', content: 'I have the search results and today\'s date. I will answer based on this current information.' });
+  enriched.push({ role: 'assistant', content: 'I have live web data. I will answer using only those current results.' });
   enriched.push(last);
   return enriched;
 }
