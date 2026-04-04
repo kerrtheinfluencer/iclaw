@@ -67,7 +67,7 @@ const PROVIDERS = {
 };
 
 export default function SettingsPanel({ isOpen, onClose, onSelectEngine, onSetKey, activeEngine, llmStatus, activeModel, onSelectModel }) {
-  const [keys, setKeys] = useState({ gemini: '', groq: '', cerebras: '', sambanova: '', openrouter: '' });
+  const [keys, setKeys] = useState({ gemini: '', groq: '', cerebras: '', sambanova: '', openrouter: '', huggingface: '', together: '', tavily: '' });
   const [showKeys, setShowKeys] = useState({});
   const [storage, setStorage] = useState(null);
   const [savedProvider, setSavedProvider] = useState(null);
@@ -80,7 +80,10 @@ export default function SettingsPanel({ isOpen, onClose, onSelectEngine, onSetKe
         getSetting('key_cerebras', ''),
         getSetting('key_sambanova', ''),
         getSetting('key_openrouter', ''),
-      ]).then(([g, gr, c, s, or]) => setKeys({ gemini: g, groq: gr, cerebras: c, sambanova: s, openrouter: or }));
+        getSetting('key_huggingface', ''),
+        getSetting('key_together', ''),
+        getSetting('key_tavily', ''),
+      ]).then(([g, gr, c, s, or, hf, tog, tav]) => setKeys({ gemini: g, groq: gr, cerebras: c, sambanova: s, openrouter: or, huggingface: hf, together: tog, tavily: tav }));
       getStorageEstimate().then(setStorage);
     }
   }, [isOpen]);
@@ -216,6 +219,32 @@ export default function SettingsPanel({ isOpen, onClose, onSelectEngine, onSetKe
             {activeEngine === 'wasm' && <Check size={14} className="text-neon-green" />}
           </button>
         </section>
+
+        {/* Tavily Search */}
+        <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/[0.03] p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold text-cyan-400 flex items-center gap-1.5">🔍 Tavily Search API</p>
+              <p className="text-[10px] text-steel-500 mt-0.5">Powers agent web search · Free at tavily.com · Optional</p>
+            </div>
+            {keys.tavily && <span className="text-[9px] font-mono text-neon-green bg-neon-green/10 px-2 py-0.5 rounded-full">Active</span>}
+          </div>
+          <div className="flex gap-1.5">
+            <input type={showKeys.tavily ? 'text' : 'password'} value={keys.tavily}
+              onChange={e => setKeys(p => ({...p, tavily: e.target.value}))}
+              placeholder="tvly-xxxxxxxx"
+              className="flex-1 bg-void-300/30 border border-white/[0.06] rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-steel-300 placeholder-steel-600 outline-none focus:border-cyan-500/30" />
+            <button onClick={() => setShowKeys(p => ({...p, tavily: !p.tavily}))}
+              className="px-2 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-steel-500 text-[10px] hover:text-steel-300 transition">
+              {showKeys.tavily ? 'Hide' : 'Show'}
+            </button>
+            <button onClick={async () => { await saveSetting('key_tavily', keys.tavily); setSavedProvider('tavily'); setTimeout(() => setSavedProvider(null), 2000); }}
+              className="px-2.5 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[11px] font-mono hover:bg-cyan-500/15 transition">
+              {savedProvider === 'tavily' ? '✓' : 'Save'}
+            </button>
+          </div>
+          <a href="https://tavily.com" target="_blank" rel="noreferrer" className="text-[10px] text-cyan-400/50 hover:text-cyan-400 transition block">Get free key → tavily.com</a>
+        </div>
 
         {storage && (
           <section>

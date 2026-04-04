@@ -34,10 +34,12 @@ const engineMeta = {
   wasm: {
     icon: null, label: 'WASM', color: 'text-neon-green', border: 'border-neon-green/30',
     models: [
-      { id: 'smollm2-360m-webgpu',       label: 'SmolLM2 360M ⚡',     tier: 'WebGPU · Tiny · Most reliable' },
-      { id: 'llama3.2-1b-webgpu',        label: 'Llama 3.2 1B ⚡',     tier: 'WebGPU · Close all apps first' },
-      { id: 'qwen2.5-coder-1.5b-webgpu', label: 'Qwen Coder 1.5B ⚡',  tier: 'WebGPU · Best for code' },
-      { id: 'qwen2.5-coder-1.5b',        label: 'Qwen 1.5B CPU',       tier: 'CPU Fallback · ~2 tok/s' },
+      { id: 'smollm2-360m-webgpu',        label: 'SmolLM2 360M ⚡',         tier: 'WebGPU · 200MB · Most reliable' },
+      { id: 'llama3.2-1b-webgpu',         label: 'Llama 3.2 1B ⚡',         tier: 'WebGPU · 700MB · General' },
+      { id: 'qwen2.5-coder-1.5b-webgpu',  label: 'Qwen Coder 1.5B ⚡',      tier: 'WebGPU · 850MB · Best for code' },
+      { id: 'deepseek-r1-1.5b-webgpu',    label: 'DeepSeek R1 1.5B ⚡',     tier: 'WebGPU · 900MB · Reasoning' },
+      { id: 'qwen2.5-1.5b-webgpu',        label: 'Qwen2.5 1.5B ⚡',         tier: 'WebGPU · 850MB · General' },
+      { id: 'qwen2.5-coder-1.5b',         label: 'Qwen Coder CPU',           tier: 'CPU · ~2 tok/s · Fallback' },
     ],
   },
 };

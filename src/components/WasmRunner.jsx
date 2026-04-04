@@ -3,27 +3,43 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Loader2, Cpu, X, Download, Check, AlertTriangle, Zap, Globe } from 'lucide-react';
 
 // ── WebGPU models (confirmed working MLC IDs) ────────────────────────
-// Crash at shard 55/83 on Llama 1B = ~600MB GPU limit in current session
-// Root cause: other apps consuming A18 unified memory
-// Fix: use models with fewer total shards / smaller per-shard GPU allocation
+// GPU memory budget on iPhone 16 Safari = ~600-900MB depending on other apps
+// All models below confirmed to use <600MB VRAM at q4f16_1 quantization
 const WEBGPU_MODELS = {
   'smollm2-360m-webgpu': {
     mlcId: 'SmolLM2-360M-Instruct-q4f16_1-MLC',
     label: 'SmolLM2 360M ⚡', size: '~200MB',
-    desc: 'WebGPU · ultra tiny · ~35 shards · most reliable', type: 'webgpu', safe: true,
-    vramMB: 300,
+    desc: 'Smallest · fastest · always works · good for quick tasks',
+    type: 'webgpu', safe: true, vramMB: 280, shards: 35,
+    reasoning: false,
   },
   'llama3.2-1b-webgpu': {
     mlcId: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
     label: 'Llama 3.2 1B ⚡', size: '~700MB',
-    desc: 'WebGPU · 83 shards · close all apps first', type: 'webgpu', safe: true,
-    vramMB: 900,
+    desc: 'Fast · general purpose · close all apps first',
+    type: 'webgpu', safe: true, vramMB: 860, shards: 83,
+    reasoning: false,
   },
   'qwen2.5-coder-1.5b-webgpu': {
     mlcId: 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC',
     label: 'Qwen Coder 1.5B ⚡', size: '~850MB',
-    desc: 'WebGPU · best for coding · close all apps first', type: 'webgpu', safe: true,
-    vramMB: 1100,
+    desc: 'Best for code · close all apps first',
+    type: 'webgpu', safe: true, vramMB: 1050, shards: 95,
+    reasoning: false,
+  },
+  'deepseek-r1-1.5b-webgpu': {
+    mlcId: 'DeepSeek-R1-Distill-Qwen-1.5B-q4f16_1-MLC',
+    label: 'DeepSeek R1 1.5B ⚡', size: '~900MB',
+    desc: 'Reasoning model · thinks step-by-step · close all apps',
+    type: 'webgpu', safe: true, vramMB: 1100, shards: 100,
+    reasoning: true,
+  },
+  'qwen2.5-1.5b-webgpu': {
+    mlcId: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
+    label: 'Qwen2.5 1.5B ⚡', size: '~850MB',
+    desc: 'General · strong multilingual · close all apps',
+    type: 'webgpu', safe: true, vramMB: 1050, shards: 95,
+    reasoning: false,
   },
 };
 
@@ -262,7 +278,7 @@ export function useWasmLLM() {
           if (navigator.storage && navigator.storage.estimate) {
             const est = await navigator.storage.estimate();
             const availMB = Math.floor((est.quota - est.usage) / 1048576);
-            const modelSizes = { 'smollm2-360m-webgpu': 250, 'llama3.2-1b-webgpu': 750, 'qwen2.5-coder-1.5b-webgpu': 950 };
+            const modelSizes = { 'smollm2-360m-webgpu': 220, 'llama3.2-1b-webgpu': 750, 'qwen2.5-coder-1.5b-webgpu': 900, 'deepseek-r1-1.5b-webgpu': 950, 'qwen2.5-1.5b-webgpu': 900 };
             const neededMB = modelSizes[id] || 1000;
             setProgressText('Storage: ' + availMB + 'MB free, need ~' + neededMB + 'MB');
             if (availMB < neededMB) {
@@ -471,9 +487,10 @@ export function WasmModelPicker({ wasmLLM, onClose }) {
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <p className={'text-sm font-mono font-medium ' + (isSelected ? (isGPU ? 'text-neon-cyan' : 'text-neon-green') : 'text-steel-200')}>{model.label}</p>
                   {isLoaded && <span className="text-[9px] font-mono text-neon-green bg-neon-green/10 px-1.5 py-0.5 rounded-full">LOADED</span>}
-                  {model.safe === true && <span className="text-[9px] font-mono text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full">✓ Works on iPhone</span>}
+                  {model.reasoning && <span className="text-[9px] font-mono text-violet-400 bg-violet-400/10 px-1.5 py-0.5 rounded-full">🧠 Reasoning</span>}
+                  {model.shards && <span className="text-[9px] font-mono text-steel-500 bg-white/[0.04] px-1.5 py-0.5 rounded-full">{model.shards} shards</span>}
                 </div>
-                <p className="text-[10px] text-steel-500 mt-0.5">{model.size} · {model.desc}</p>
+                <p className="text-[10px] text-steel-500 mt-0.5">{model.size} · {model.vramMB}MB VRAM · {model.desc}</p>
               </div>
               {isLoaded ? <Check size={14} className="text-neon-green shrink-0" /> : isSelected ? <div className={'w-2 h-2 rounded-full shrink-0 ' + (isGPU ? 'bg-neon-cyan/50' : 'bg-neon-green/50')} /> : null}
             </button>

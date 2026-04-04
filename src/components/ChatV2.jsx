@@ -134,9 +134,11 @@ export default function ChatV2({
             <p className="text-[11px] font-mono text-slate-500 uppercase tracking-wider">On-Device (Private)</p>
           </div>
           {[
-            { id:'smollm2-360m-webgpu', label:'SmolLM2 360M ⚡', sub:'200MB · Most reliable on iPhone' },
-            { id:'llama3.2-1b-webgpu', label:'Llama 3.2 1B ⚡', sub:'700MB · Close all apps first' },
+            { id:'smollm2-360m-webgpu', label:'SmolLM2 360M ⚡', sub:'200MB · Most reliable' },
+            { id:'llama3.2-1b-webgpu', label:'Llama 3.2 1B ⚡', sub:'700MB · Fast · General' },
             { id:'qwen2.5-coder-1.5b-webgpu', label:'Qwen Coder 1.5B ⚡', sub:'850MB · Best for code' },
+            { id:'deepseek-r1-1.5b-webgpu', label:'DeepSeek R1 1.5B ⚡', sub:'900MB · Reasoning model' },
+            { id:'qwen2.5-1.5b-webgpu', label:'Qwen2.5 1.5B ⚡', sub:'850MB · General purpose' },
           ].map(m => (
             <button key={m.id} onClick={() => { onSelectModel(m.id); llm.initModel?.('wasm'); setShowModelMenu(false); }}
               className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/[0.04] transition text-left">
