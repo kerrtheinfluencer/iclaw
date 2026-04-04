@@ -1,286 +1,161 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import Header from './components/Header.jsx';
-import Sidebar from './components/Sidebar.jsx';
-import ChatView from './components/ChatView.jsx';
-import CodeEditor from './components/CodeEditor.jsx';
-import HtmlPreview from './components/HtmlPreview.jsx';
-import SettingsPanel from './components/SettingsPanel.jsx';
 import { useWasmLLM, WasmModelPicker } from './components/WasmRunner.jsx';
 import { useLLM } from './hooks/useLLM.js';
-import { useWorkspace } from './hooks/useWorkspace.js';
 import { useAgent } from './hooks/useAgent.js';
-import AgentPanel from './components/AgentPanel.jsx';
 import { useMultiAgent } from './hooks/useMultiAgent.js';
-import RateLimitMonitor from './components/RateLimitMonitor.jsx';
+import AgentPanel from './components/AgentPanel.jsx';
 import MultiAgentPanel from './components/MultiAgentPanel.jsx';
+import HtmlPreview from './components/HtmlPreview.jsx';
+import SettingsPanel from './components/SettingsPanel.jsx';
+import RateLimitMonitor from './components/RateLimitMonitor.jsx';
+import ChatV2 from './components/ChatV2.jsx';
 import { uid } from './utils/codeParser.js';
 import { saveChat, getSetting } from './utils/db.js';
 
 class ErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false, error: null }; }
-  static getDerivedStateFromError(error) { return { hasError: true, error }; }
-  componentDidCatch(err, info) { console.error('iclaw crash:', err, info); }
+  static getDerivedStateFromError(e) { return { hasError: true, error: e }; }
+  componentDidCatch(e, i) { console.error('iclaw v2 crash:', e, i); }
   render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{ background: '#0a0a0f', color: '#00ff88', fontFamily: 'monospace', padding: '24px', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
-          <div style={{ fontSize: '24px' }}>⚠️</div>
-          <div style={{ fontSize: '14px', fontWeight: 'bold' }}>iclaw crashed</div>
-          <div style={{ fontSize: '11px', color: '#ff006e', maxWidth: '280px', textAlign: 'center', lineHeight: 1.5 }}>{this.state.error?.message || 'Unknown error'}</div>
-          <button onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload(); }}
-            style={{ marginTop: '8px', padding: '10px 20px', background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.3)', borderRadius: '8px', color: '#00ff88', cursor: 'pointer', fontSize: '12px' }}>
-            Reload App
-          </button>
-        </div>
-      );
-    }
-    return this.props.children;
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <div style={{ background: '#030712', color: '#22d3ee', fontFamily: 'monospace', padding: 32, minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+        <div style={{ fontSize: 40 }}>⚠</div>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>iclaw v2.0 — runtime error</div>
+        <div style={{ fontSize: 11, color: '#f43f5e', maxWidth: 300, textAlign: 'center', lineHeight: 1.6 }}>{this.state.error?.message}</div>
+        <button onClick={() => window.location.reload()} style={{ padding: '10px 24px', background: 'rgba(34,211,238,0.1)', border: '1px solid rgba(34,211,238,0.3)', borderRadius: 8, color: '#22d3ee', cursor: 'pointer', fontSize: 13 }}>Reload</button>
+      </div>
+    );
   }
 }
 
 export default function App() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [agentOpen, setAgentOpen] = useState(false);
-  const [multiAgentOpen, setMultiAgentOpen] = useState(false);
-  const [rateLimitOpen, setRateLimitOpen] = useState(false);
-  const [agentApiKey, setAgentApiKey] = useState('');
-  const [agentKeys, setAgentKeys] = useState({});
-  const [messages, setMessages] = useState([]);
-  const [chatId, setChatId] = useState(() => uid());
-  const [editingFile, setEditingFile] = useState(null);
-  const [editingContent, setEditingContent] = useState('');
-  const [previewHtml, setPreviewHtml] = useState(null);
-  const [previewTitle, setPreviewTitle] = useState('');
-  const touchStartX = useRef(0);
+  const [settingsOpen, setSettingsOpen]       = useState(false);
+  const [agentOpen, setAgentOpen]             = useState(false);
+  const [multiAgentOpen, setMultiAgentOpen]   = useState(false);
+  const [rateLimitOpen, setRateLimitOpen]     = useState(false);
+  const [wasmPickerOpen, setWasmPickerOpen]   = useState(false);
+  const [previewHtml, setPreviewHtml]         = useState(null);
+  const [previewTitle, setPreviewTitle]       = useState('');
+  const [messages, setMessages]               = useState([]);
+  const [chatId, setChatId]                   = useState(() => uid());
+  const [agentApiKey, setAgentApiKey]         = useState('');
+  const [agentKeys, setAgentKeys]             = useState({});
   const keyRestoredRef = useRef(false);
 
-  const llm = useLLM();
-  const workspace = useWorkspace();
-  const wasmLLM = useWasmLLM();
-  const [wasmPickerOpen, setWasmPickerOpen] = useState(false);
-  const agent = useAgent();
+  const llm       = useLLM();
+  const wasmLLM   = useWasmLLM();
+  const agent     = useAgent();
   const multiAgent = useMultiAgent();
 
-  // Auto-restore saved keys — triggered once worker reports idle status
   useEffect(() => {
     if (keyRestoredRef.current) return;
     if (llm.status !== 'idle' && llm.status !== 'needsKey') return;
     keyRestoredRef.current = true;
     (async () => {
-      for (const p of ['gemini', 'groq', 'cerebras', 'sambanova', 'huggingface', 'openrouter']) {
-        const key = await getSetting(`key_${p}`, '');
-        if (key) {
-          llm.setKey(p, key);
-          setAgentApiKey(key);
-          setAgentKeys(prev => ({...prev, [p]: key}));
-          break;
-        }
+      for (const p of ['gemini','groq','cerebras','sambanova','huggingface','openrouter','together']) {
+        const k = await getSetting(`key_${p}`, '');
+        if (k) { llm.setKey(p, k); setAgentApiKey(k); setAgentKeys(prev => ({...prev, [p]: k})); break; }
       }
     })();
   }, [llm.status]);
 
-  // Swipe gestures
-  useEffect(() => {
-    const onStart = (e) => { touchStartX.current = e.touches[0].clientX; };
-    const onEnd = (e) => {
-      const dx = e.changedTouches[0].clientX - touchStartX.current;
-      if (touchStartX.current < 30 && dx > 80) setSidebarOpen(true);
-      if (sidebarOpen && dx < -80) setSidebarOpen(false);
-    };
-    document.addEventListener('touchstart', onStart, { passive: true });
-    document.addEventListener('touchend', onEnd, { passive: true });
-    return () => { document.removeEventListener('touchstart', onStart); document.removeEventListener('touchend', onEnd); };
-  }, [sidebarOpen]);
-
-  // Send message with optional attachments
-  const handleSend = useCallback(async (text, streamRef, attachments = []) => {
+  const handleSend = useCallback(async (text, streamRef) => {
     const userMsg = { id: uid(), role: 'user', content: text };
-    setMessages((prev) => [...prev, userMsg]);
-    const history = [...messages, userMsg].map(({ role, content }) => ({ role, content }));
+    setMessages(prev => [...prev, userMsg]);
+    const history = [...messages, userMsg].map(({role,content}) => ({role,content}));
 
-    // WASM — intercept ALL wasm engine calls, never let them reach the worker
     if (llm.activeEngine === 'wasm') {
       if (!wasmLLM.isReady) {
-        // Model not loaded yet — show helpful message
-        const hint = { id: uid(), role: 'assistant', content: '⚠️ No offline model loaded yet. Tap **Local WASM** on the home screen to download a model first.' };
-        setMessages((prev) => [...prev, hint]);
+        setMessages(prev => [...prev, { id: uid(), role: 'assistant', content: '⚡ No local model loaded yet. Tap **Local AI** to download one.' }]);
         return;
       }
-      await wasmLLM.generate(
-        history,
-        (delta, fullText) => { streamRef.current?.(fullText); },
-        (fullText, stats, error) => {
+      await wasmLLM.generate(history,
+        (delta, full) => streamRef.current?.(full),
+        (full, stats, err) => {
           streamRef.current?.('');
-          if (fullText) {
-            const msg = { id: uid(), role: 'assistant', content: fullText, stats };
-            setMessages((prev) => {
-              const updated = [...prev, msg];
-              saveChat({ id: chatId, messages: updated, title: text.slice(0, 50), project: workspace.projectName || null }).catch(() => {});
-              return updated;
-            });
-          } else if (error) {
-            setMessages((prev) => [...prev, { id: uid(), role: 'assistant', content: '⚠️ ' + error }]);
-          }
+          if (full) setMessages(prev => { const u = [...prev, {id:uid(),role:'assistant',content:full,stats}]; saveChat({id:chatId,messages:u,title:text.slice(0,50)}).catch(()=>{}); return u; });
+          else if (err) setMessages(prev => [...prev, {id:uid(),role:'assistant',content:'⚠️ '+err}]);
         }
       );
       return;
     }
-
-    let ragContext = [];
-    if (workspace.isOpen) {
-      try { ragContext = await workspace.searchContext(text); } catch {}
-    }
-    llm.generate(history, ragContext,
-      (delta, fullText) => { streamRef.current?.(fullText); },
-      (fullText, stats, error) => {
+    llm.generate(history, [],
+      (delta, full) => streamRef.current?.(full),
+      (full, stats, err) => {
         streamRef.current?.('');
-        if (fullText) {
-          const msg = { id: uid(), role: 'assistant', content: fullText, stats };
-          setMessages((prev) => {
-            const updated = [...prev, msg];
-            saveChat({ id: chatId, messages: updated, title: text.slice(0, 50), project: workspace.projectName || null }).catch(() => {});
-            return updated;
-          });
-        } else if (error) {
-          setMessages((prev) => [...prev, { id: uid(), role: 'assistant', content: `⚠️ ${error}` }]);
-        }
-      },
-      attachments
+        if (full) setMessages(prev => { const u = [...prev, {id:uid(),role:'assistant',content:full,stats}]; saveChat({id:chatId,messages:u,title:text.slice(0,50)}).catch(()=>{}); return u; });
+        else if (err) setMessages(prev => [...prev, {id:uid(),role:'assistant',content:'⚠️ '+err}]);
+      }
     );
-  }, [messages, llm, workspace, chatId, wasmLLM]);
+  }, [messages, llm, wasmLLM, chatId]);
 
-  // Load a saved chat
-  const handleLoadChat = useCallback((chat) => {
-    setChatId(chat.id);
-    setMessages(chat.messages || []);
-    // Ensure engine is active after load
-    if (llm.status === 'idle' || llm.status === 'needsKey') {
-      // try to restore key
-      getSetting('key_gemini', '').then(k => { if (k) { llm.setKey('gemini', k); setAgentApiKey(k); } });
-    }
-  }, [llm]);
+  const handlePreview = useCallback((html, title) => { setPreviewHtml(html); setPreviewTitle(title || 'Preview'); }, []);
+  const handleNewChat = useCallback(() => { setMessages([]); setChatId(uid()); llm.resetChat?.(); }, [llm]);
 
-  const handleInject = useCallback(async (path, code) => {
-    if (!workspace.isOpen) return false;
-    const ok = await workspace.saveFile(path, code);
-    if (ok) workspace.reindex();
-    return ok;
-  }, [workspace]);
+  const getAgentConfig = () => {
+    const eng = llm.activeEngine || 'gemini';
+    const key = eng === 'wasm' ? 'wasm' : (agentKeys[eng] || agentApiKey);
+    const models = { gemini:'gemini-2.5-flash', groq:'llama-3.3-70b-versatile', openrouter:'mistralai/mistral-7b-instruct:free', wasm:'local' };
+    return { eng, key, model: llm.activeModel || models[eng] || 'gemini-2.5-flash' };
+  };
 
-  const handlePreview = useCallback((html, title) => { setPreviewHtml(html); setPreviewTitle(title); }, []);
-
-  const handleNewChat = useCallback(() => {
-    setMessages([]);
-    setChatId(uid());
-    llm.resetChat();
-    setSidebarOpen(false);
-  }, [llm]);
-
-  const handleFileSelect = useCallback(async (path) => {
-    const content = await workspace.openFile(path);
-    if (content !== null) { setEditingFile(path); setEditingContent(content); }
-    setSidebarOpen(false);
-  }, [workspace]);
-
-  const handleEditorSave = useCallback(async (path, content) => {
-    const ok = await workspace.saveFile(path, content);
-    if (ok) { setEditingContent(content); workspace.reindex(); }
-    return ok;
-  }, [workspace]);
+  const isWasm = llm.activeEngine === 'wasm';
+  const isOnDevice = isWasm && wasmLLM.isReady;
 
   return (
     <ErrorBoundary>
-    <div className="h-screen h-[100dvh] flex flex-col bg-void-950 text-steel-100 overflow-hidden scan-overlay hex-bg">
-      <Header llmStatus={llm.status} projectName={workspace.projectName}
-        activeEngine={llm.activeEngine} activeModel={llm.activeModel}
-        onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
-        onSettingsOpen={() => setSettingsOpen(true)}
-        onSelectModel={(modelId) => {
-          const wasmIds = ['qwen2.5-coder-1.5b', 'qwen2.5-coder-3b', 'phi-3.5-mini'];
-          if (wasmIds.includes(modelId)) {
-            wasmLLM.setSelectedModel(modelId);
-            wasmLLM.loadModel(modelId);
-          } else {
-            llm.selectModel(modelId);
-          }
-        }}
-        onOpenAgent={() => setAgentOpen(true)}
-        onOpenMultiAgent={() => setMultiAgentOpen(true)}
-        onOpenRateLimit={() => setRateLimitOpen(true)} />
-
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)}
-        tree={workspace.tree} projectName={workspace.projectName}
-        onOpenProject={async () => { await workspace.openProject(); setSidebarOpen(false); }}
-        onFileSelect={handleFileSelect} onNewChat={handleNewChat} onLoadChat={handleLoadChat}
-        indexStats={workspace.indexStats} isIndexing={workspace.isIndexing}
-        onReindex={workspace.reindex} hasGit={workspace.hasGit} fsSupported={workspace.fsSupported} />
-
-      <main className="flex-1 min-h-0 relative">
-        <ChatView messages={messages} onSend={handleSend}
-          llmStatus={llm.status} loadProgress={llm.loadProgress} loadText={llm.loadText}
-          statusMessage={llm.statusMessage} activeEngine={llm.activeEngine}
-          onInitModel={(engine) => { if (engine === 'wasm') { setWasmPickerOpen(true); } else { llm.initModel(engine); } }} onResetChat={handleNewChat}
-          onInject={handleInject} onPreview={handlePreview}
-          projectOpen={workspace.isOpen} projectName={workspace.projectName}
-          onOpenProject={workspace.openProject} fsSupported={workspace.fsSupported}
+      <div className="h-screen h-[100dvh] flex flex-col bg-void-950 text-steel-100 overflow-hidden">
+        <ChatV2
+          messages={messages}
+          onSend={handleSend}
+          onNewChat={handleNewChat}
+          llm={llm}
+          wasmLLM={wasmLLM}
+          isOnDevice={isOnDevice}
+          isWasm={isWasm}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenAgent={() => setAgentOpen(true)}
-          webSearchOn={llm.webSearchOn}
-          isSearching={llm.isSearching || (llm.activeEngine === 'wasm' && wasmLLM.isSearching)}
-          onToggleSearch={llm.toggleSearch} />
-      </main>
+          onOpenMultiAgent={() => setMultiAgentOpen(true)}
+          onOpenWasmPicker={() => setWasmPickerOpen(true)}
+          onInitModel={(engine) => engine === 'wasm' ? setWasmPickerOpen(true) : llm.initModel(engine)}
+          onSelectModel={(id) => {
+            const wasmIds = ['llama3.2-1b-webgpu','qwen2.5-coder-1.5b-webgpu','llama3.2-3b-webgpu','phi3.5-mini-webgpu','qwen2.5-coder-1.5b'];
+            wasmIds.includes(id) ? (wasmLLM.setSelectedModel(id), wasmLLM.loadModel(id)) : llm.selectModel(id);
+          }}
+          onPreview={handlePreview}
+          onOpenRateLimit={() => setRateLimitOpen(true)}
+        />
 
-      {editingFile && <CodeEditor path={editingFile} initialContent={editingContent}
-        onSave={handleEditorSave} onClose={() => setEditingFile(null)} />}
-      {previewHtml && <HtmlPreview html={previewHtml} title={previewTitle}
-        onClose={() => setPreviewHtml(null)} />}
-      {wasmPickerOpen && (
-        <WasmModelPicker wasmLLM={wasmLLM} onClose={() => setWasmPickerOpen(false)} />
-      )}
-      <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}
-        onSelectEngine={llm.initModel} onSetKey={(p, k) => { llm.setKey(p, k); setAgentKeys(prev => ({...prev, [p]: k})); setAgentApiKey(k); }}
-        activeEngine={llm.activeEngine} llmStatus={llm.status}
-        activeModel={llm.activeModel} onSelectModel={(modelId) => {
-          const wasmIds = ['qwen2.5-coder-1.5b', 'qwen2.5-coder-3b', 'phi-3.5-mini'];
-          if (wasmIds.includes(modelId)) { wasmLLM.setSelectedModel(modelId); wasmLLM.loadModel(modelId); }
-          else { llm.selectModel(modelId); }
-        }} />
-      <RateLimitMonitor
-        isOpen={rateLimitOpen} onClose={() => setRateLimitOpen(false)}
-        activeEngine={llm.activeEngine} activeModel={llm.activeModel}
-      />
-      <MultiAgentPanel
-        isOpen={multiAgentOpen} onClose={() => setMultiAgentOpen(false)}
-        isRunning={multiAgent.isRunning} agents={multiAgent.agents}
-        files={multiAgent.files} activeAgent={multiAgent.activeAgent}
-        onRun={(task) => {
-              const eng = llm.activeEngine || 'gemini';
-              const key = eng === 'wasm' ? 'wasm' : (agentKeys[eng] || agentApiKey);
-              const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free', wasm: 'local' };
-              const model = llm.activeModel || defaultModels[eng] || 'gemini-2.5-flash';
-              multiAgent.runMultiAgent(task, key, eng, model, handleInject, handlePreview);
-            }}
-        onStop={multiAgent.stopMultiAgent} onClear={multiAgent.clearMultiAgent}
-        apiKey={agentKeys[llm.activeEngine] || agentApiKey} activeEngine={llm.activeEngine} streamText={multiAgent.streamText} onPreviewFile={handlePreview}
-      />
-      <AgentPanel
-        isOpen={agentOpen} onClose={() => setAgentOpen(false)}
-        isRunning={agent.isRunning} steps={agent.steps} files={agent.files}
-        onRun={(task) => {
-              const eng = llm.activeEngine || 'gemini';
-              const key = eng === 'wasm' ? 'wasm' : (agentKeys[eng] || agentApiKey);
-              const defaultModels = { gemini: 'gemini-2.5-flash', groq: 'llama-3.3-70b-versatile', openrouter: 'mistralai/mistral-7b-instruct:free', wasm: 'local' };
-              const model = llm.activeModel || defaultModels[eng] || 'gemini-2.5-flash';
-              agent.runAgent(task, key, eng, model, handleInject, handlePreview);
-            }}
-        onStop={agent.stopAgent} onClear={agent.clearAgent}
-        apiKey={agentKeys[llm.activeEngine] || agentApiKey} activeModel={llm.activeModel}
-        activeEngine={llm.activeEngine} streamText={agent.streamText}
-        onPreviewFile={handlePreview}
-      />
-    </div>
+        {wasmPickerOpen && <WasmModelPicker wasmLLM={wasmLLM} onClose={() => setWasmPickerOpen(false)} />}
+        {previewHtml && <HtmlPreview html={previewHtml} title={previewTitle} onClose={() => setPreviewHtml(null)} />}
+
+        <SettingsPanel isOpen={settingsOpen} onClose={() => setSettingsOpen(false)}
+          onSelectEngine={llm.initModel} activeEngine={llm.activeEngine} llmStatus={llm.status}
+          activeModel={llm.activeModel}
+          onSetKey={(p,k) => { llm.setKey(p,k); setAgentKeys(prev=>({...prev,[p]:k})); setAgentApiKey(k); }}
+          onSelectModel={(id) => {
+            const wasmIds = ['llama3.2-1b-webgpu','qwen2.5-coder-1.5b-webgpu','llama3.2-3b-webgpu','phi3.5-mini-webgpu','qwen2.5-coder-1.5b'];
+            wasmIds.includes(id) ? (wasmLLM.setSelectedModel(id), wasmLLM.loadModel(id)) : llm.selectModel(id);
+          }}
+        />
+        <RateLimitMonitor isOpen={rateLimitOpen} onClose={() => setRateLimitOpen(false)} activeEngine={llm.activeEngine} activeModel={llm.activeModel} />
+        <AgentPanel isOpen={agentOpen} onClose={() => setAgentOpen(false)}
+          isRunning={agent.isRunning} steps={agent.steps} files={agent.files} streamText={agent.streamText}
+          onRun={(task) => { const {eng,key,model} = getAgentConfig(); agent.runAgent(task,key,eng,model,null,handlePreview); }}
+          onStop={agent.stopAgent} onClear={agent.clearAgent}
+          apiKey={agentKeys[llm.activeEngine]||agentApiKey} activeEngine={llm.activeEngine} activeModel={llm.activeModel}
+          onPreviewFile={handlePreview}
+        />
+        <MultiAgentPanel isOpen={multiAgentOpen} onClose={() => setMultiAgentOpen(false)}
+          isRunning={multiAgent.isRunning} agents={multiAgent.agents} files={multiAgent.files}
+          activeAgent={multiAgent.activeAgent} streamText={multiAgent.streamText}
+          onRun={(task) => { const {eng,key,model} = getAgentConfig(); multiAgent.runMultiAgent(task,key,eng,model,null,handlePreview); }}
+          onStop={multiAgent.stopMultiAgent} onClear={multiAgent.clearMultiAgent}
+          apiKey={agentKeys[llm.activeEngine]||agentApiKey} activeEngine={llm.activeEngine}
+          onPreviewFile={handlePreview}
+        />
+      </div>
     </ErrorBoundary>
   );
 }
-// Agent panel appended via patch
