@@ -3,26 +3,28 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Loader2, Cpu, X, Download, Check, AlertTriangle, Zap, Globe } from 'lucide-react';
 
 // ── WebGPU models (confirmed working MLC IDs) ────────────────────────
+// All models use q4f16_1 (4-bit weights, 16-bit activations) — smallest possible for WebGPU
+// Models are downloaded in shards by WebLLM — Safari may kill mid-download if screen locks
 const WEBGPU_MODELS = {
   'llama3.2-1b-webgpu': {
     mlcId: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
-    label: 'Llama 3.2 1B ⚡', size: '~750MB',
-    desc: 'WebGPU · fastest · confirmed working', type: 'webgpu',
+    label: 'Llama 3.2 1B', size: '~700MB',
+    desc: '4-bit · WebGPU · fastest · most stable', type: 'webgpu', safe: true,
   },
   'qwen2.5-coder-1.5b-webgpu': {
     mlcId: 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC',
-    label: 'Qwen Coder 1.5B ⚡', size: '~900MB',
-    desc: 'WebGPU · best for coding', type: 'webgpu',
+    label: 'Qwen Coder 1.5B', size: '~850MB',
+    desc: '4-bit · WebGPU · best for code', type: 'webgpu', safe: true,
   },
   'llama3.2-3b-webgpu': {
     mlcId: 'Llama-3.2-3B-Instruct-q4f16_1-MLC',
-    label: 'Llama 3.2 3B ⚡', size: '~1.8GB',
-    desc: 'WebGPU · smartest small model', type: 'webgpu',
+    label: 'Llama 3.2 3B', size: '~1.7GB',
+    desc: '4-bit · WebGPU · smarter · needs strong WiFi', type: 'webgpu', safe: false,
   },
   'phi3.5-mini-webgpu': {
     mlcId: 'Phi-3.5-mini-instruct-q4f16_1-MLC',
-    label: 'Phi 3.5 Mini ⚡', size: '~2.2GB',
-    desc: 'WebGPU · best reasoning · needs more RAM', type: 'webgpu',
+    label: 'Phi 3.5 Mini', size: '~2.1GB',
+    desc: '4-bit · WebGPU · smartest · needs strong WiFi', type: 'webgpu', safe: false,
   },
 };
 
@@ -227,20 +229,21 @@ export function useWasmLLM() {
   const [hasGPU, setHasGPU] = useState(null);
   const [selectedModel, setSelectedModel] = useState('llama3.2-1b-webgpu');
   const [loadedModelId, setLoadedModelId] = useState(_loadedModelId);
+  const [isModelReady, setIsModelReady] = useState(!!_engine && !!_loadedModelId);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const abortRef = useRef(false);
 
   useEffect(() => {
     checkGPU().then(ok => { setHasGPU(ok); if (!ok) setSelectedModel('qwen2.5-coder-1.5b'); });
-    if (_engine && _loadedModelId) { setLoadedModelId(_loadedModelId); setStatus('ready'); }
+    if (_engine && _loadedModelId) { setLoadedModelId(_loadedModelId); setStatus('ready'); setIsModelReady(true); }
   }, []);
 
   const allModels = hasGPU ? { ...WEBGPU_MODELS, ...CPU_MODELS } : CPU_MODELS;
 
   const loadModel = useCallback(async (modelId) => {
     const id = modelId || selectedModel;
-    if (_engine && _loadedModelId === id) { setStatus('ready'); setLoadedModelId(id); return; }
+    if (_engine && _loadedModelId === id) { setStatus('ready'); setLoadedModelId(id); setIsModelReady(true); return; }
     if (_loading) return;
     _loading = true;
     setStatus('loading'); setError(null); setProgress(0);
@@ -253,15 +256,46 @@ export function useWasmLLM() {
 
       if (isGPUModel && gpuOk) {
         setStatus('downloading'); setProgressText('Loading WebLLM...');
+
+        // Keep screen alive during download — Safari kills fetch streams if screen locks
+        let wakeLock = null;
+        try {
+          if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+        } catch {}
+        const releaseWake = async () => { try { await wakeLock?.release(); } catch {} };
+
+        // Re-acquire wake lock if user returns to tab
+        const onVisible = async () => {
+          if (document.visibilityState === 'visible' && _loading) {
+            try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+          }
+        };
+        document.addEventListener('visibilitychange', onVisible);
+
         const webllm = await loadWebLLM();
         const model = WEBGPU_MODELS[id];
         setProgressText('Downloading ' + model.label + '...');
-        const engine = await webllm.CreateMLCEngine(model.mlcId, {
-          initProgressCallback: (info) => { setProgress(info.progress || 0); setProgressText(info.text || '...'); },
-        });
+        let engine;
+        try {
+          engine = await webllm.CreateMLCEngine(model.mlcId, {
+            initProgressCallback: (info) => { setProgress(info.progress || 0); setProgressText(info.text || '...'); },
+          });
+        } catch (mlcErr) {
+          // Large models crash Safari with out-of-memory
+          _loading = false;
+          setStatus('error');
+          setError(model.safe === false
+            ? 'Not enough RAM or download interrupted. Try Llama 3.2 1B (700MB) — most stable on iPhone.'
+            : 'Download failed: ' + mlcErr.message + '. Check WiFi and try again.');
+          document.removeEventListener('visibilitychange', onVisible);
+          await releaseWake();
+          return;
+        }
         _engine = engine; _engineType = 'webgpu'; _loadedModelId = id;
-        _loading = false; setLoadedModelId(id); setStatus('ready');
-        setProgressText(model.label + ' — WebGPU ready ⚡');
+        _loading = false; setLoadedModelId(id); setStatus('ready'); setIsModelReady(true);
+        setProgressText(model.label + ' — ready ⚡');
+        document.removeEventListener('visibilitychange', onVisible);
+        await releaseWake();
       } else {
         const model = CPU_MODELS[id] || CPU_MODELS['qwen2.5-coder-1.5b'];
         setStatus('downloading'); setProgressText('Downloading ' + model.label + ' (' + model.size + ')...');
@@ -273,7 +307,7 @@ export function useWasmLLM() {
           progressCallback: ({ loaded, total }) => { setProgress(total > 0 ? loaded / total : 0); setProgressText((loaded/1048576).toFixed(0) + ' MB / ' + (total/1048576).toFixed(0) + ' MB'); },
         });
         _engine = wllama; _engineType = 'cpu'; _loadedModelId = id;
-        _loading = false; setLoadedModelId(id); setStatus('ready');
+        _loading = false; setLoadedModelId(id); setStatus('ready'); setIsModelReady(true);
         setProgressText(model.label + ' loaded ✓');
       }
     } catch (err) {
@@ -329,7 +363,7 @@ export function useWasmLLM() {
   return {
     status, progress, progressText, error, selectedModel, setSelectedModel,
     loadModel, generate, stop, loadedModelId, hasGPU, allModels,
-    isReady: !!_engine && !['loading', 'downloading'].includes(status),
+    isReady: isModelReady && !!_engine && !['loading', 'downloading'].includes(status),
     isLoading: ['loading', 'downloading'].includes(status),
     isGenerating: status === 'generating',
     isSearching, searchQuery,
@@ -371,10 +405,11 @@ export function WasmModelPicker({ wasmLLM, onClose }) {
               className={'w-full flex items-center gap-3 p-3.5 rounded-xl border transition-all active:scale-[0.98] text-left ' + (isSelected ? (isGPU ? 'border-neon-cyan/30 bg-neon-cyan/[0.05]' : 'border-neon-green/30 bg-neon-green/[0.05]') : 'border-white/[0.06] hover:border-white/10')}>
               {isGPU ? <Zap size={16} className={isSelected ? 'text-neon-cyan' : 'text-steel-500'} /> : <Cpu size={16} className={isSelected ? 'text-neon-green' : 'text-steel-500'} />}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <p className={'text-sm font-mono font-medium ' + (isSelected ? (isGPU ? 'text-neon-cyan' : 'text-neon-green') : 'text-steel-200')}>{model.label}</p>
                   {isLoaded && <span className="text-[9px] font-mono text-neon-green bg-neon-green/10 px-1.5 py-0.5 rounded-full">LOADED</span>}
-                  {isGPU && <span className="text-[9px] font-mono text-neon-cyan bg-neon-cyan/10 px-1.5 py-0.5 rounded-full">WebGPU</span>}
+                  {model.safe === true && <span className="text-[9px] font-mono text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full">✓ STABLE</span>}
+                  {model.safe === false && <span className="text-[9px] font-mono text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full">⚠ HIGH RAM</span>}
                 </div>
                 <p className="text-[10px] text-steel-500 mt-0.5">{model.size} · {model.desc}</p>
               </div>
@@ -384,14 +419,35 @@ export function WasmModelPicker({ wasmLLM, onClose }) {
         })}
 
         {['downloading', 'loading'].includes(status) && (
-          <div className="space-y-2 pt-1">
-            <div className="flex items-center gap-2 text-xs font-mono text-neon-amber"><Loader2 size={12} className="animate-spin shrink-0" /><span className="truncate">{progressText}</span></div>
-            <div className="w-full h-2 bg-void-300 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-neon-cyan to-neon-green rounded-full transition-all duration-300" style={{ width: Math.round(progress * 100) + '%' }} /></div>
-            <p className="text-[9px] font-mono text-steel-600 text-center">{Math.round(progress * 100)}% — keep screen on</p>
+          <div className="space-y-3 pt-1">
+            <div className="flex items-center gap-2 text-xs font-mono text-neon-amber">
+              <Loader2 size={12} className="animate-spin shrink-0" />
+              <span className="truncate">{progressText}</span>
+            </div>
+            <div className="w-full h-2.5 bg-void-300 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-neon-cyan to-neon-green rounded-full transition-all duration-500" style={{ width: Math.round(progress * 100) + '%' }} />
+            </div>
+            <p className="text-[11px] font-mono text-neon-amber text-center font-semibold">{Math.round(progress * 100)}%</p>
+            <div className="rounded-xl bg-neon-amber/5 border border-neon-amber/20 px-3 py-2.5 space-y-1">
+              <p className="text-[11px] font-mono text-neon-amber font-semibold">⚠ Keep this screen open</p>
+              <p className="text-[10px] text-steel-400 leading-relaxed">Safari will pause the download if you switch apps or lock your screen. Stay on this page until 100%.</p>
+            </div>
           </div>
         )}
         {status === 'ready' && loadedModelId && <div className="px-3 py-2.5 rounded-xl bg-neon-green/5 border border-neon-green/20"><p className="text-[11px] text-neon-green font-mono">✓ {progressText}</p></div>}
-        {error && status === 'error' && <div className="px-3 py-2.5 rounded-xl bg-neon-pink/5 border border-neon-pink/20"><p className="text-[10px] text-neon-pink font-mono">{error}</p><p className="text-[10px] text-steel-500 mt-1">Try a different model or the CPU fallback.</p></div>}
+        {error && status === 'error' && (
+          <div className="px-3 py-3 rounded-xl bg-neon-pink/5 border border-neon-pink/20 space-y-2">
+            <p className="text-[11px] text-neon-pink font-mono font-semibold">Download failed</p>
+            <p className="text-[10px] text-steel-400 leading-relaxed">{error}</p>
+            <div className="text-[10px] text-steel-500 space-y-1 pt-1 border-t border-white/5">
+              <p className="font-semibold text-steel-400">Tips to fix:</p>
+              <p>• Stay on screen during entire download</p>
+              <p>• Use strong WiFi (models are 700MB–2GB)</p>
+              <p>• Try Llama 3.2 1B (smallest, most stable)</p>
+              <p>• Close other apps to free RAM</p>
+            </div>
+          </div>
+        )}
 
         <button onClick={() => loadModel(selectedModel)}
           disabled={['loading', 'downloading'].includes(status) || loadedModelId === selectedModel}

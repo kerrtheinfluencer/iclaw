@@ -31,7 +31,7 @@ const SUGGESTIONS = [
 
 export default function ChatV2({
   messages, onSend, onNewChat, llm, wasmLLM,
-  isOnDevice, isWasm,
+  isWasm,
   onOpenSettings, onOpenAgent, onOpenMultiAgent, onOpenWasmPicker,
   onInitModel, onSelectModel, onPreview, onOpenRateLimit,
 }) {
@@ -83,6 +83,7 @@ export default function ChatV2({
     recogRef.current = r; r.start(); setIsListening(true);
   };
 
+  const isOnDevice = isWasm && wasmLLM?.isReady;
   const isEmpty = messages.length === 0 && !streaming;
   const engineLabel = isWasm
     ? (wasmLLM.loadedModelId?.replace('-webgpu','').replace('llama3.2','Llama 3.2').replace('qwen2.5-coder','Qwen').replace('phi3.5-mini','Phi 3.5') || 'Local AI')
