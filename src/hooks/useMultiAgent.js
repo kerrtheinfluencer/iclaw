@@ -211,9 +211,13 @@ export function useMultiAgent() {
         updateAgent('coder', { status: 'done' });
 
         let html = code.trim();
-        const fm = html.match(/```(?:html)?
-?([\s\S]+?)```/s);
-        if (fm) html = fm[1].trim();
+        const fbStart = html.indexOf('```');
+        const fbEnd = html.lastIndexOf('```');
+        if (fbStart !== -1 && fbEnd > fbStart + 3) {
+          const inner = html.slice(fbStart + 3, fbEnd);
+          html = inner.replace(/^[a-z]*
+/, '').trim();
+        }
         if (!html.startsWith('<!') && !html.startsWith('<html')) {
           html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;padding:20px}</style></head><body>' + html + '</body></html>';
         }
