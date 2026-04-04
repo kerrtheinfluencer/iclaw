@@ -197,54 +197,84 @@ export function useMultiAgent() {
       reviewer: { status: 'idle', steps: [], output: null },
     });
 
-    // ── LOCAL MODEL FAST PATH ──────────────────────────────────────────
-    // Multi-agent with 1-3B local models: skip 3-phase pipeline,
-    // do one direct generation and show results immediately
+    // ── LOCAL MODEL 3-PHASE PIPELINE ───────────────────────────────────
     if (resolvedEngine === 'wasm' || resolvedKey === 'wasm') {
-      setActiveAgent('coder');
-      updateAgent('coder', { status: 'running' });
-      addStep('coder', { type: 'think', status: 'running', label: 'Generating code locally...' });
       try {
-        const localPrompt = 'Task: ' + task + '\n\nWrite a complete self-contained HTML file implementing this exactly. All CSS and JS must be inline. Dark theme. Make it visually polished.\n\nOutput ONLY the HTML code starting with <!DOCTYPE html>:';
+        // PHASE 1: Planner — write a spec
+        setActiveAgent('planner');
+        updateAgent('planner', { status: 'running' });
+        addStep('planner', { type: 'plan', status: 'running', label: 'Planning: ' + task.slice(0, 40) + '...' });
+
+        const planPrompt = 'Task: ' + task + '\nWrite a short technical plan: what files are needed, what features to include, what libraries to use. Keep it under 200 words.';
+        let spec = '';
+        await callWasm([{ role: 'user', content: planPrompt }],
+          'You are a software architect. Write a concise technical spec.',
+          (chunk) => { spec += chunk; }
+        );
+        updateLastStep('planner', { status: 'done', label: 'Spec written', detail: spec.slice(0, 300) });
+        updateAgent('planner', { status: 'done', output: spec });
+
+        if (abortRef.current) { setIsRunning(false); setActiveAgent(null); return; }
+
+        // PHASE 2: Coder — generate the actual code
+        setActiveAgent('coder');
+        updateAgent('coder', { status: 'running' });
+        addStep('coder', { type: 'think', status: 'running', label: 'Coding...' });
         setStreamText('');
+
+        const codePrompt = 'Spec:\n' + spec + '\n\nTask: ' + task + '\n\nWrite a complete self-contained HTML file. All CSS and JS inline. Dark theme. Polished UI.\n\nOutput ONLY the HTML starting with <!DOCTYPE html>:';
         let accumulated = '';
         const code = await callWasm(
-          [{ role: 'user', content: localPrompt }],
-          'You are an expert web developer. Output ONLY complete HTML with no explanation, no markdown fences. Start with <!DOCTYPE html>.',
+          [{ role: 'user', content: codePrompt }],
+          'You are an expert web developer. Output ONLY complete HTML. No explanation, no markdown fences. Start with <!DOCTYPE html>.',
           (chunk) => { accumulated += chunk; setStreamText(accumulated); }
         );
-        updateLastStep('coder', { status: 'done', label: 'Code generated' });
+        updateLastStep('coder', { status: 'done', label: 'Code written' });
         updateAgent('coder', { status: 'done' });
+        setStreamText('');
 
+        // Extract HTML
         let html = code.trim();
         const fbStart = html.indexOf('```');
         const fbEnd = html.lastIndexOf('```');
         if (fbStart !== -1 && fbEnd > fbStart + 3) {
           const inner = html.slice(fbStart + 3, fbEnd);
-          const nl = inner.indexOf("\n"); html = (nl >= 0 ? inner.slice(nl + 1) : inner).trim();
+          const nl = inner.indexOf("\n");
+          html = (nl >= 0 ? inner.slice(nl + 1) : inner).trim();
         }
         if (!html.startsWith('<!') && !html.startsWith('<html')) {
           html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>body{background:#0a0a0f;color:#e8e8e8;font-family:sans-serif;padding:20px}</style></head><body>' + html + '</body></html>';
         }
-
-        setFiles({ 'index.html': html });
         addStep('coder', { type: 'write_file', status: 'done', label: 'index.html written' });
+        setFiles({ 'index.html': html });
         if (onFileWrite) await onFileWrite('index.html', html);
         if (onPreview) onPreview(html, 'index.html');
-        setStreamText('');
 
-        updateAgent('planner', { status: 'done', steps: [{ id: 'p1', type: 'think', status: 'done', label: 'Planned by coder' }] });
-        updateAgent('reviewer', { status: 'done', steps: [{ id: 'r1', type: 'check', status: 'done', label: 'Reviewed — looks good' }] });
+        if (abortRef.current) { setIsRunning(false); setActiveAgent(null); return; }
+
+        // PHASE 3: Reviewer — quick quality check
+        setActiveAgent('reviewer');
+        updateAgent('reviewer', { status: 'running' });
+        addStep('reviewer', { type: 'plan', status: 'running', label: 'Reviewing code...' });
+
+        const reviewPrompt = 'Review this HTML briefly. List any obvious bugs or missing features in 3 bullet points:\n' + html.slice(0, 800);
+        let review = '';
+        await callWasm([{ role: 'user', content: reviewPrompt }],
+          'You are a code reviewer. Be concise. List issues only.',
+          (chunk) => { review += chunk; }
+        );
+        updateLastStep('reviewer', { status: 'done', label: 'Review complete', detail: review.slice(0, 400) });
+        updateAgent('reviewer', { status: 'done', output: review });
+
       } catch (err) {
-        updateLastStep('coder', { status: 'error', label: err.message });
-        updateAgent('coder', { status: 'error' });
+        addStep('coder', { type: 'error', status: 'error', label: err.message });
         setStreamText('');
       }
       setActiveAgent(null);
       setIsRunning(false);
       return;
     }
-    // ── END LOCAL FAST PATH ────────────────────────────────────────────
+    // ── END LOCAL PIPELINE ─────────────────────────────────────────────
 
     try {
       // Phase 1: Planner
