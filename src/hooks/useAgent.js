@@ -273,6 +273,7 @@ export function useAgent() {
   const [isRunning, setIsRunning] = useState(false);
   const [steps, setSteps] = useState([]);
   const [files, setFiles] = useState({}); // virtual file system: { path: content }
+  const [streamText, setStreamText] = useState('');
   const abortRef = useRef(false);
   const workerRef = useRef(null);
 
@@ -546,7 +547,7 @@ Max ${MAX_STEPS} steps. Be efficient but never sacrifice quality.`;
     setFiles({});
   }, []);
 
-  return { isRunning, steps, files, runAgent, stopAgent, clearAgent };
+  return { isRunning, steps, files, streamText, runAgent, stopAgent, clearAgent };
 }
 
 function getStepLabel(tool, args) {

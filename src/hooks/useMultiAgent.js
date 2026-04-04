@@ -120,6 +120,7 @@ Start each rewritten file with: // filename.ext`;
 
 export function useMultiAgent() {
   const [isRunning, setIsRunning] = useState(false);
+  const [streamText, setStreamText] = useState('');
   const [agents, setAgents] = useState({
     planner:  { status: 'idle', steps: [], output: null },
     coder:    { status: 'idle', steps: [], output: null },
@@ -205,8 +206,13 @@ export function useMultiAgent() {
       addStep('coder', { type: 'think', status: 'running', label: 'Generating code locally...' });
       try {
         const localPrompt = 'Task: ' + task + '\n\nWrite a complete self-contained HTML file implementing this exactly. All CSS and JS must be inline. Dark theme. Make it visually polished.\n\nOutput ONLY the HTML code starting with <!DOCTYPE html>:';
-        const code = await callWasm([{ role: 'user', content: localPrompt }],
-          'You are an expert web developer. Output ONLY complete HTML with no explanation, no markdown fences. Start with <!DOCTYPE html>.');
+        setStreamText('');
+        let accumulated = '';
+        const code = await callWasm(
+          [{ role: 'user', content: localPrompt }],
+          'You are an expert web developer. Output ONLY complete HTML with no explanation, no markdown fences. Start with <!DOCTYPE html>.',
+          (chunk) => { accumulated += chunk; setStreamText(accumulated); }
+        );
         updateLastStep('coder', { status: 'done', label: 'Code generated' });
         updateAgent('coder', { status: 'done' });
 
@@ -225,12 +231,14 @@ export function useMultiAgent() {
         addStep('coder', { type: 'write_file', status: 'done', label: 'index.html written' });
         if (onFileWrite) await onFileWrite('index.html', html);
         if (onPreview) onPreview(html, 'index.html');
+        setStreamText('');
 
         updateAgent('planner', { status: 'done', steps: [{ id: 'p1', type: 'think', status: 'done', label: 'Planned by coder' }] });
         updateAgent('reviewer', { status: 'done', steps: [{ id: 'r1', type: 'check', status: 'done', label: 'Reviewed — looks good' }] });
       } catch (err) {
         updateLastStep('coder', { status: 'error', label: err.message });
         updateAgent('coder', { status: 'error' });
+        setStreamText('');
       }
       setActiveAgent(null);
       setIsRunning(false);
@@ -328,5 +336,5 @@ export function useMultiAgent() {
     setTimeout(() => { abortRef.current = false; }, 100);
   }, []);
 
-  return { isRunning, agents, files, activeAgent, runMultiAgent, stopMultiAgent, clearMultiAgent };
+  return { isRunning, streamText, agents, files, activeAgent, runMultiAgent, stopMultiAgent, clearMultiAgent };
 }
