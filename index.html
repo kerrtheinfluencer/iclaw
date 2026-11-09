@@ -1,25 +1,203 @@
+
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0a0a0f" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="iclaw" />
-    <link rel="apple-touch-icon" href="/iclaw/icons/icon-192.png" />
-    <title>iclaw</title>
-    <script>
-      // Clean up ALL service workers silently — no reload
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(function(regs) {
-          regs.forEach(function(reg) { reg.unregister(); });
-        });
-      }
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New GMA Calculator</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    body {
+      background-color: #f0f4f8;
+      color: #1e293b;
+      display: flex;
+      justify-content: center;
+      padding: 20px;
+      margin: 0;
+    }
+    .card {
+      background: #ffffff;
+      max-width: 480px;
+      width: 100%;
+      border-radius: 14px;
+      padding: 24px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 1.5rem;
+      color: #0f172a;
+      text-align: center;
+    }
+    p.subtitle {
+      text-align: center;
+      font-size: 0.9rem;
+      color: #64748b;
+      margin-top: -8px;
+      margin-bottom: 20px;
+    }
+    .group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      font-size: 0.88rem;
+      margin-bottom: 6px;
+      color: #334155;
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+    }
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 1rem;
+      background: #f8fafc;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: #2563eb;
+      background: #ffffff;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background-color: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 6px;
+    }
+    button:hover {
+      background-color: #1d4ed8;
+    }
+    .result-box {
+      margin-top: 22px;
+      padding: 16px;
+      background-color: #eff6ff;
+      border-left: 4px solid #2563eb;
+      border-radius: 8px;
+    }
+    .final-answer {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: #1e3a8a;
+      margin-bottom: 12px;
+    }
+    .steps {
+      font-size: 0.9rem;
+      line-height: 1.6;
+      color: #334155;
+    }
+    .steps div {
+      margin-bottom: 6px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h1>New GMA Calculator</h1>
+  <p class="subtitle">Map Work Grid Magnetic Angle Updater</p>
+
+  <div class="row group">
+    <div style="flex: 1;">
+      <label for="mapYear">Map Year</label>
+      <input type="number" id="mapYear" value="2005">
+    </div>
+    <div style="flex: 1;">
+      <label for="currentYear">Current / Target Year</label>
+      <input type="number" id="currentYear" value="2026">
+    </div>
+  </div>
+
+  <div class="group">
+    <label>Initial GMA (from Map)</label>
+    <div class="row">
+      <input type="number" id="gmaDeg" value="3" min="0" placeholder="Degrees (°)">
+      <input type="number" id="gmaMin" value="10" min="0" max="59" placeholder="Minutes (')">
+      <select id="gmaDir">
+        <option value="West" selected>West</option>
+        <option value="East">East</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="group">
+    <label>Annual Change</label>
+    <div class="row">
+      <input type="number" id="changeMin" value="6" min="0" step="0.1" placeholder="Minutes (')">
+      <select id="changeDir">
+        <option value="West" selected>West</option>
+        <option value="East">East</option>
+      </select>
+    </div>
+  </div>
+
+  <button onclick="calculateGMA()">Calculate New GMA</button>
+
+  <div class="result-box" id="resultBox">
+    <div class="final-answer" id="finalAnswer">New GMA: 5° 16' West</div>
+    <div class="steps" id="stepsOutput"></div>
+  </div>
+</div>
+
+<script>
+  function calculateGMA() {
+    const mapYear = parseInt(document.getElementById('mapYear').value) || 0;
+    const currentYear = parseInt(document.getElementById('currentYear').value) || 0;
+    const gmaDeg = parseInt(document.getElementById('gmaDeg').value) || 0;
+    const gmaMin = parseInt(document.getElementById('gmaMin').value) || 0;
+    const gmaDir = document.getElementById('gmaDir').value;
+    const changeMin = parseFloat(document.getElementById('changeMin').value) || 0;
+    const changeDir = document.getElementById('changeDir').value;
+
+    const yearsDiff = currentYear - mapYear;
+    const totalChangeMin = Math.round(yearsDiff * changeMin);
+    const changeDegPart = Math.floor(Math.abs(totalChangeMin) / 60);
+    const changeMinPart = Math.abs(totalChangeMin) % 60;
+
+    // Convert West to negative and East to positive for signed arithmetic
+    const initialSignedMin = (gmaDeg * 60 + gmaMin) * (gmaDir === 'East' ? 1 : -1);
+    const deltaSignedMin = totalChangeMin * (changeDir === 'East' ? 1 : -1);
+    const finalSignedMin = initialSignedMin + deltaSignedMin;
+
+    const absFinalMin = Math.abs(finalSignedMin);
+    const finalDeg = Math.floor(absFinalMin / 60);
+    const finalMin = absFinalMin % 60;
+    const finalDir = finalSignedMin === 0 ? '' : (finalSignedMin > 0 ? 'East' : 'West');
+
+    const pad = (n) => n < 10 ? '0' + n : n;
+    const formattedGMA = finalSignedMin === 0 
+      ? `0° 00' (Grid & Magnetic North Aligned)` 
+      : `${finalDeg}° ${pad(finalMin)}' ${finalDir}`;
+
+    const ruleText = gmaDir === changeDir
+      ? `Same direction (${gmaDir} & ${changeDir}) → Add values.`
+      : `Opposite directions (${gmaDir} & ${changeDir}) → Subtract smaller from larger.`;
+
+    document.getElementById('finalAnswer').textContent = `New GMA (${currentYear}): ${formattedGMA}`;
+    document.getElementById('stepsOutput').innerHTML = `
+      <div><strong>1. Years Elapsed:</strong> ${currentYear} − ${mapYear} = ${yearsDiff} years</div>
+      <div><strong>2. Total Change:</strong> ${yearsDiff} × ${changeMin}' ${changeDir} = ${totalChangeMin}' (${changeDegPart}° ${pad(changeMinPart)}' ${changeDir})</div>
+      <div><strong>3. Rule Applied:</strong> ${ruleText}</div>
+      <div><strong>4. Calculation:</strong> ${gmaDeg}° ${pad(gmaMin)}' ${gmaDir} ${gmaDir === changeDir ? '+' : '−'} ${changeDegPart}° ${pad(changeMinPart)}' ${changeDir} = <strong>${formattedGMA}</strong></div>
+    `;
+  }
+
+  // Run once on load to show default example
+  calculateGMA();
+</script>
+
+</body>
 </html>
